@@ -52,7 +52,7 @@ export interface Organization {
   currency: string | null;
   payment_instructions: string | null;
   logo_url: string | null;
-  pdf_template: 'MODERN' | 'CLASSIC' | 'MINIMAL' | null;
+  pdf_template: 'MODERN' | 'CLASSIC' | 'MINIMAL' | 'BOUTIQUE' | 'CORPORATE' | null;
   pdf_accent_color: string | null;
   pdf_footer_note: string | null;
 }
