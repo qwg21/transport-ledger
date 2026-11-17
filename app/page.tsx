@@ -1272,6 +1272,7 @@ export default function AccountingApp() {
         {section === 'SETTINGS' && org && (
           <SettingsForm
             org={org}
+            sub={sub}
             onOrgChange={setOrg}
             onSaved={loadUserAndOrgs}
             isIntelligencePlus={isIntelligencePlus}

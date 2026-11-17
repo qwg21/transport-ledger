@@ -40,6 +40,12 @@ export default function SettingsForm({
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [plans, setPlans] = useState<PlanPrice[]>([]);
   const [selectedPlan, setSelectedPlan] = useState(sub?.plan || 'ESSENTIAL');
+  useEffect(() => {
+    if (sub?.plan) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- subscription data is loaded asynchronously and must update the billing dropdown
+      setSelectedPlan(sub.plan);
+    }
+  }, [sub?.plan]);
   const [months, setMonths] = useState<1 | 3 | 12>(1);
   const [promoCode, setPromoCode] = useState('');
   const [billingLoading, setBillingLoading] = useState(false);
