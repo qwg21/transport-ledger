@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
-import { todayLocal } from '@/lib/documents';
-import { Truck, Users, MapPin, Fuel, AlertTriangle } from 'lucide-react';
+import { buildDocNumber, explainDbError, todayLocal } from '@/lib/documents';
+import { Truck, Users, MapPin, Fuel, AlertTriangle, FileText } from 'lucide-react';
 
 export interface Vehicle {
   id: string;
@@ -36,6 +36,8 @@ export interface Trip {
   distance_km: number | null;
   agreed_fare: number;
   status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  quote_id?: string | null;
+  invoice_id?: string | null;
 }
 
 export interface VehicleCost {
@@ -49,6 +51,16 @@ export interface VehicleCost {
   notes: string | null;
 }
 
+interface LinkedDoc {
+  id: string;
+  doc_type: string;
+  doc_number: string;
+  chain_code: string;
+  status: string;
+  amount: number;
+  amount_paid: number;
+}
+
 export type TransportTab = 'TRIPS' | 'FLEET' | 'DRIVERS' | 'COSTS';
 
 type Props = {
@@ -57,6 +69,7 @@ type Props = {
   isReadOnly: boolean;
   activeTab?: TransportTab;
   onTabChange?: (tab: TransportTab) => void;
+  onDocCreated?: () => void;
 };
 
 function licenseAlertStatus(expiry: string | null): 'EXPIRED' | 'SOON' | 'OK' {
@@ -67,7 +80,14 @@ function licenseAlertStatus(expiry: string | null): 'EXPIRED' | 'SOON' | 'OK' {
   return diffDays <= 30 ? 'SOON' : 'OK';
 }
 
-export default function TransportSection({ orgId, currency, isReadOnly, activeTab, onTabChange }: Props) {
+export default function TransportSection({
+  orgId,
+  currency,
+  isReadOnly,
+  activeTab,
+  onTabChange,
+  onDocCreated
+}: Props) {
   const [internalTab, setInternalTab] = useState<TransportTab>('TRIPS');
   const tab = activeTab ?? internalTab;
   const setTab = (next: TransportTab) => {
@@ -79,6 +99,8 @@ export default function TransportSection({ orgId, currency, isReadOnly, activeTa
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [costs, setCosts] = useState<VehicleCost[]>([]);
+  const [linkedDocs, setLinkedDocs] = useState<LinkedDoc[]>([]);
+  const [billingTripId, setBillingTripId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Vehicle form
@@ -111,32 +133,44 @@ export default function TransportSection({ orgId, currency, isReadOnly, activeTa
   const [costVendor, setCostVendor] = useState('');
 
   const loadData = useCallback(async () => {
-    const [vRes, dRes, tRes, cRes] = await Promise.all([
+    const [vRes, dRes, tRes, cRes, docRes] = await Promise.all([
       supabase.from('vehicles').select('*').eq('org_id', orgId).order('registration_no'),
       supabase.from('drivers').select('*').eq('org_id', orgId).order('full_name'),
       supabase.from('trips').select('*').eq('org_id', orgId).order('trip_date', { ascending: false }).limit(50),
-      supabase.from('vehicle_costs').select('*').eq('org_id', orgId).order('cost_date', { ascending: false }).limit(50)
+      supabase.from('vehicle_costs').select('*').eq('org_id', orgId).order('cost_date', { ascending: false }).limit(50),
+      supabase
+        .from('documents')
+        .select('id, doc_type, doc_number, chain_code, status, amount, amount_paid')
+        .eq('org_id', orgId)
+        .in('doc_type', ['QUOTE', 'INVOICE'])
     ]);
     if (!vRes.error) setVehicles((vRes.data as Vehicle[] | null) ?? []);
     if (!dRes.error) setDrivers((dRes.data as Driver[] | null) ?? []);
     if (!tRes.error) setTrips((tRes.data as Trip[] | null) ?? []);
     if (!cRes.error) setCosts((cRes.data as VehicleCost[] | null) ?? []);
+    if (!docRes.error) setLinkedDocs((docRes.data as LinkedDoc[] | null) ?? []);
   }, [orgId]);
 
   useEffect(() => {
     let active = true;
     async function init() {
-      const [vRes, dRes, tRes, cRes] = await Promise.all([
+      const [vRes, dRes, tRes, cRes, docRes] = await Promise.all([
         supabase.from('vehicles').select('*').eq('org_id', orgId).order('registration_no'),
         supabase.from('drivers').select('*').eq('org_id', orgId).order('full_name'),
         supabase.from('trips').select('*').eq('org_id', orgId).order('trip_date', { ascending: false }).limit(50),
-        supabase.from('vehicle_costs').select('*').eq('org_id', orgId).order('cost_date', { ascending: false }).limit(50)
+        supabase.from('vehicle_costs').select('*').eq('org_id', orgId).order('cost_date', { ascending: false }).limit(50),
+        supabase
+          .from('documents')
+          .select('id, doc_type, doc_number, chain_code, status, amount, amount_paid')
+          .eq('org_id', orgId)
+          .in('doc_type', ['QUOTE', 'INVOICE'])
       ]);
       if (!active) return;
       if (!vRes.error) setVehicles((vRes.data as Vehicle[] | null) ?? []);
       if (!dRes.error) setDrivers((dRes.data as Driver[] | null) ?? []);
       if (!tRes.error) setTrips((tRes.data as Trip[] | null) ?? []);
       if (!cRes.error) setCosts((cRes.data as VehicleCost[] | null) ?? []);
+      if (!docRes.error) setLinkedDocs((docRes.data as LinkedDoc[] | null) ?? []);
     }
     init();
     return () => {
@@ -146,6 +180,7 @@ export default function TransportSection({ orgId, currency, isReadOnly, activeTa
 
   const vehicleMap = useMemo(() => new Map(vehicles.map(v => [v.id, v])), [vehicles]);
   const driverMap = useMemo(() => new Map(drivers.map(d => [d.id, d])), [drivers]);
+  const docMap = useMemo(() => new Map(linkedDocs.map(d => [d.id, d])), [linkedDocs]);
 
   const costByTrip = useMemo(() => {
     const map = new Map<string, number>();
@@ -266,6 +301,86 @@ export default function TransportSection({ orgId, currency, isReadOnly, activeTa
     else loadData();
   };
 
+  const handleCreateTripDocument = async (trip: Trip, docType: 'QUOTE' | 'INVOICE') => {
+    if (isReadOnly || billingTripId) return;
+    const fare = Number(trip.agreed_fare || 0);
+    if (fare <= 0) {
+      setErrorMsg(`Set an agreed fare greater than 0 on ${trip.trip_code} before creating a ${docType.toLowerCase()}.`);
+      return;
+    }
+
+    setBillingTripId(trip.id);
+    setErrorMsg(null);
+    try {
+      const existingQuote = trip.quote_id ? docMap.get(trip.quote_id) : undefined;
+      const year = todayLocal().slice(0, 4);
+      const chainCode =
+        docType === 'INVOICE' && existingQuote
+          ? existingQuote.chain_code
+          : `${year}-${Math.floor(1000 + Math.random() * 9000)}`;
+      const vehicle = trip.vehicle_id ? vehicleMap.get(trip.vehicle_id) : undefined;
+      const lineDesc = `Charter / Transfer (${trip.trip_code}): ${trip.origin} to ${trip.destination} on ${trip.trip_date}${
+        vehicle ? ` [${vehicle.registration_no}]` : ''
+      }`;
+
+      const { data: newDoc, error } = await supabase
+        .from('documents')
+        .insert([
+          {
+            org_id: orgId,
+            customer_id: null,
+            doc_type: docType,
+            chain_code: chainCode,
+            doc_number: buildDocNumber(docType, chainCode),
+            parent_id: docType === 'INVOICE' && existingQuote ? existingQuote.id : null,
+            quote_ref: docType === 'INVOICE' && existingQuote ? existingQuote.doc_number : null,
+            issue_date: todayLocal(),
+            customer_name: trip.client_name,
+            customer_phone: null,
+            customer_email: null,
+            description: lineDesc,
+            amount: fare,
+            amount_paid: 0,
+            status: docType === 'QUOTE' ? 'ACTIVE' : 'UNPAID'
+          }
+        ])
+        .select('id')
+        .single();
+
+      if (error || !newDoc) {
+        setErrorMsg(error ? explainDbError(error) : `Could not create ${docType.toLowerCase()}.`);
+        return;
+      }
+
+      await supabase.from('document_items').insert([
+        {
+          org_id: orgId,
+          document_id: newDoc.id,
+          product_id: null,
+          description: lineDesc,
+          quantity: 1,
+          unit_price: fare,
+          line_total: fare
+        }
+      ]);
+
+      if (docType === 'INVOICE' && existingQuote) {
+        await supabase.from('documents').update({ status: 'CONVERTED' }).eq('id', existingQuote.id);
+      }
+
+      const tripPatch = docType === 'QUOTE' ? { quote_id: newDoc.id } : { invoice_id: newDoc.id };
+      const { error: linkErr } = await supabase.from('trips').update(tripPatch).eq('id', trip.id);
+      if (linkErr) {
+        setErrorMsg(linkErr.message);
+      }
+
+      await loadData();
+      onDocCreated?.();
+    } finally {
+      setBillingTripId(null);
+    }
+  };
+
   const handleAddCost = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -373,9 +488,9 @@ export default function TransportSection({ orgId, currency, isReadOnly, activeTa
                   <th className="py-2 px-2">Date / Code</th>
                   <th className="py-2 px-2">Client &amp; Route</th>
                   <th className="py-2 px-2">Vehicle / Driver</th>
-                  <th className="py-2 px-2">Fare</th>
-                  <th className="py-2 px-2">Trip Costs</th>
+                  <th className="py-2 px-2">Fare &amp; Costs</th>
                   <th className="py-2 px-2">Status</th>
+                  <th className="py-2 px-2">Billing (Quote / Invoice)</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -383,6 +498,9 @@ export default function TransportSection({ orgId, currency, isReadOnly, activeTa
                   const v = t.vehicle_id ? vehicleMap.get(t.vehicle_id) : undefined;
                   const d = t.driver_id ? driverMap.get(t.driver_id) : undefined;
                   const tripCost = costByTrip.get(t.id) || 0;
+                  const quote = t.quote_id ? docMap.get(t.quote_id) : undefined;
+                  const invoice = t.invoice_id ? docMap.get(t.invoice_id) : undefined;
+                  const busy = billingTripId === t.id;
                   return (
                     <tr key={t.id}>
                       <td className="py-2.5 px-2">
@@ -397,8 +515,10 @@ export default function TransportSection({ orgId, currency, isReadOnly, activeTa
                         <div>{v ? v.registration_no : '-'}</div>
                         <div className="text-slate-400">{d ? d.full_name : '-'}</div>
                       </td>
-                      <td className="py-2.5 px-2 font-semibold">{currency} {Number(t.agreed_fare).toLocaleString()}</td>
-                      <td className="py-2.5 px-2 text-rose-600">{currency} {tripCost.toLocaleString()}</td>
+                      <td className="py-2.5 px-2">
+                        <div className="font-semibold text-slate-900">{currency} {Number(t.agreed_fare).toLocaleString()}</div>
+                        <div className="text-rose-600">Cost: {currency} {tripCost.toLocaleString()}</div>
+                      </td>
                       <td className="py-2.5 px-2">
                         <select
                           disabled={isReadOnly}
@@ -411,6 +531,64 @@ export default function TransportSection({ orgId, currency, isReadOnly, activeTa
                           <option value="COMPLETED">COMPLETED</option>
                           <option value="CANCELLED">CANCELLED</option>
                         </select>
+                      </td>
+                      <td className="py-2.5 px-2">
+                        {invoice ? (
+                          <div className="space-y-0.5">
+                            <span className="inline-flex items-center gap-1 font-mono font-semibold text-slate-800">
+                              <FileText className="w-3 h-3 text-blue-600" />
+                              {invoice.doc_number}
+                            </span>
+                            <div>
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                  invoice.status === 'PAID'
+                                    ? 'bg-emerald-50 text-emerald-700'
+                                    : invoice.status === 'PARTIAL'
+                                    ? 'bg-amber-50 text-amber-700'
+                                    : 'bg-slate-100 text-slate-700'
+                                }`}
+                              >
+                                {invoice.status}
+                              </span>
+                            </div>
+                          </div>
+                        ) : quote ? (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-mono text-slate-700 font-semibold">{quote.doc_number}</span>
+                            {!isReadOnly && t.status !== 'CANCELLED' && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => handleCreateTripDocument(t, 'INVOICE')}
+                                className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-semibold disabled:opacity-50"
+                              >
+                                {busy ? 'Working...' : 'Convert to Invoice'}
+                              </button>
+                            )}
+                          </div>
+                        ) : !isReadOnly && t.status !== 'CANCELLED' ? (
+                          <div className="flex flex-wrap gap-1">
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => handleCreateTripDocument(t, 'QUOTE')}
+                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-semibold disabled:opacity-50"
+                            >
+                              + Quote
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => handleCreateTripDocument(t, 'INVOICE')}
+                              className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-semibold disabled:opacity-50"
+                            >
+                              {busy ? 'Working...' : '+ Invoice'}
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">-</span>
+                        )}
                       </td>
                     </tr>
                   );
