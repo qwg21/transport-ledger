@@ -208,27 +208,56 @@ export default function PlatformAdminPage() {
     setLoading(true);
     setStatusMsg(null);
 
-    const { data, error } = await supabase.rpc('platform_provision_business', {
-      p_name: name,
-      p_industry: industry,
-      p_owner_email: ownerEmail,
-      p_kra_pin: kraPin || null,
-      p_currency: currency,
-      p_plan: plan,
-      p_transport_addon: transportAddon
-    });
+    const {
+      data: { session }
+    } = await supabase.auth.getSession();
 
-    setLoading(false);
-    if (error) {
-      setStatusMsg(`Error: ${error.message}`);
+    if (!session?.access_token) {
+      setLoading(false);
+      setStatusMsg('Error: Session expired. Please sign in again.');
       return;
     }
 
-    setStatusMsg(
-      data?.status === 'LINKED_EXISTING_USER'
-        ? `Provisioned "${name}" (${plan}) and linked to ${ownerEmail}.`
-        : `Provisioned "${name}" (${plan}). ${ownerEmail} will be linked automatically upon signing up.`
-    );
+    const res = await fetch('/api/admin/provision', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({
+        name,
+        industry,
+        ownerEmail,
+        kraPin: kraPin || null,
+        currency,
+        plan,
+        transportAddon
+      })
+    });
+
+    const json = (await res.json()) as {
+      error?: string;
+      provision?: { status?: string };
+      inviteEmailSent?: boolean;
+      inviteNote?: string | null;
+    };
+
+    setLoading(false);
+    if (!res.ok) {
+      setStatusMsg(`Error: ${json.error || 'Provisioning failed.'}`);
+      return;
+    }
+
+    if (json.provision?.status === 'LINKED_EXISTING_USER') {
+      setStatusMsg(`Provisioned "${name}" (${plan}) and linked to ${ownerEmail}.`);
+    } else if (json.inviteEmailSent) {
+      setStatusMsg(`Provisioned "${name}" (${plan}) and emailed an invite link to ${ownerEmail}.`);
+    } else {
+      setStatusMsg(
+        `Provisioned "${name}" (${plan}). Invite email note: ${json.inviteNote || 'User can sign in if already registered.'}`
+      );
+    }
+
     setName('');
     setOwnerEmail('');
     setKraPin('');
