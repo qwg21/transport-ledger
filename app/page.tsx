@@ -26,6 +26,7 @@ import ExpensesTable, { type ExpenseWithReceipt } from '@/components/ExpensesTab
 import DocumentModal from '@/components/DocumentModal';
 import SettingsForm from '@/components/SettingsForm';
 import IntelligenceSection from '@/components/IntelligenceSection';
+import InventorySection from '@/components/InventorySection';
 import {
   LayoutDashboard,
   FileText,
@@ -43,10 +44,19 @@ import {
   AlertCircle,
   Users,
   Package,
+  PackageCheck,
   BarChart3
 } from 'lucide-react';
 
-type Section = 'OVERVIEW' | 'SALES' | 'EXPENSES' | 'CUSTOMERS' | 'CATALOGUE' | 'INTELLIGENCE' | 'SETTINGS';
+type Section =
+  | 'OVERVIEW'
+  | 'SALES'
+  | 'EXPENSES'
+  | 'CUSTOMERS'
+  | 'CATALOGUE'
+  | 'INVENTORY'
+  | 'INTELLIGENCE'
+  | 'SETTINGS';
 
 const PAGE_SIZE = 25;
 const PLATFORM_ADMIN_EMAIL = 'quentinwg2015@gmail.com';
@@ -318,8 +328,8 @@ export default function AccountingApp() {
       sub.status === 'CANCELLED' ||
       sub.current_period_end < todayLocal())
   );
-  const isGrowthPlus = Boolean(sub && sub.plan !== 'ESSENTIAL');
-  const isIntelligencePlus = Boolean(sub && (sub.plan === 'INTELLIGENCE' || sub.plan === 'ENTERPRISE'));
+  const isGrowthPlus = Boolean(sub && ['GROWTH', 'INTELLIGENCE', 'ENTERPRISE'].includes(sub.plan));
+  const isIntelligencePlus = Boolean(sub && ['INTELLIGENCE', 'ENTERPRISE'].includes(sub.plan));
 
   const handleDeleteQuote = async (quote: DocumentRecord) => {
     if (!org) return;
@@ -580,22 +590,20 @@ export default function AccountingApp() {
   };
 
   type NavItem = { id: Section; label: string; icon: typeof LayoutDashboard };
-  const growthNavItems: NavItem[] = [
-    { id: 'CUSTOMERS', label: 'Customers', icon: Users },
-    { id: 'CATALOGUE', label: 'Products & Services', icon: Package }
-  ];
   const navItems: NavItem[] = [
     { id: 'OVERVIEW', label: 'Overview', icon: LayoutDashboard },
     { id: 'SALES', label: 'Sales & Documents', icon: FileText },
     { id: 'EXPENSES', label: 'Expenses', icon: ReceiptText },
-    ...(isGrowthPlus ? growthNavItems : []),
+    { id: 'CUSTOMERS', label: 'Customers', icon: Users },
+    { id: 'CATALOGUE', label: 'Products & Services', icon: Package },
+    { id: 'INVENTORY', label: 'Inventory & Suppliers', icon: PackageCheck },
     ...(isIntelligencePlus ? [{ id: 'INTELLIGENCE' as Section, label: 'Intelligence', icon: BarChart3 }] : []),
     { id: 'SETTINGS', label: 'Branding & Settings', icon: Settings }
   ];
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col md:flex-row font-sans">
-      
+
       {/* LEFT SIDEBAR */}
       <aside className="w-full md:w-64 bg-white border-b md:border-b-0 md:border-r border-slate-200 p-4 flex flex-col justify-between shrink-0">
         <div className="space-y-6">
@@ -608,7 +616,7 @@ export default function AccountingApp() {
             )}
             <div className="min-w-0">
               <div className="font-bold text-sm text-slate-900 truncate">{org?.name}</div>
-              <div className="text-xs text-slate-500 truncate">{sub?.plan || 'ESSENTIAL'} • {org?.industry}</div>
+              <div className="text-xs text-slate-500 truncate">{sub?.plan || 'STARTER'} &middot; {org?.industry}</div>
             </div>
           </div>
 
@@ -691,6 +699,7 @@ export default function AccountingApp() {
             {section === 'EXPENSES' && 'Purchases & Operating Expenses'}
             {section === 'CUSTOMERS' && 'Customers Directory'}
             {section === 'CATALOGUE' && 'Products & Services'}
+            {section === 'INVENTORY' && 'Inventory, Variants & Suppliers'}
             {section === 'INTELLIGENCE' && 'Business Intelligence & Reports'}
             {section === 'SETTINGS' && 'Company & PDF Template Settings'}
           </h2>
@@ -799,8 +808,8 @@ export default function AccountingApp() {
           />
         )}
 
-        {/* CUSTOMERS & PRODUCTS/SERVICES CATALOGUES (Growth+ only) */}
-        {isGrowthPlus && (section === 'CUSTOMERS' || section === 'CATALOGUE') && org && (
+        {/* CUSTOMERS & PRODUCTS/SERVICES CATALOGUES (All tiers: Starter+) */}
+        {(section === 'CUSTOMERS' || section === 'CATALOGUE') && org && (
           <CataloguesSection
             mode={section}
             orgId={org.id}
@@ -809,6 +818,17 @@ export default function AccountingApp() {
             products={products}
             docs={docs}
             onRefresh={() => loadOrgData(org.id)}
+          />
+        )}
+
+        {/* INVENTORY & SUPPLIERS (Growth+ write access) */}
+        {section === 'INVENTORY' && org && (
+          <InventorySection
+            orgId={org.id}
+            currency={currency}
+            products={products}
+            isGrowthPlus={isGrowthPlus}
+            isReadOnly={subscriptionLocked}
           />
         )}
 
@@ -824,7 +844,7 @@ export default function AccountingApp() {
           />
         )}
 
-       {/* SETTINGS & PDF TEMPLATE */}
+        {/* SETTINGS & PDF TEMPLATE */}
         {section === 'SETTINGS' && org && (
           <SettingsForm
             org={org}
@@ -837,14 +857,12 @@ export default function AccountingApp() {
         )}
       </main>
 
-      
-
       {/* CREATE DOCUMENT MODAL (MULTI-ITEM) */}
       {showDocModal && org && (
         <DocumentModal
           orgId={org.id}
           currency={currency}
-          isGrowthPlus={isGrowthPlus}
+          isGrowthPlus={true}
           subscriptionLocked={subscriptionLocked}
           customers={customers}
           products={products}

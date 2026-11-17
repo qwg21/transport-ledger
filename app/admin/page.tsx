@@ -30,7 +30,7 @@ interface Tenant {
 }
 
 interface PlanPricingRow {
-  plan: 'ESSENTIAL' | 'GROWTH' | 'INTELLIGENCE' | 'ENTERPRISE';
+ plan: 'STARTER' | 'ESSENTIAL' | 'GROWTH' | 'INTELLIGENCE' | 'ENTERPRISE';
   display_name: string;
   monthly_price_kes: number;
   promo_price_kes: number | null;
@@ -69,7 +69,7 @@ interface SubscriptionPaymentRow {
 type AdminTab = 'TENANTS' | 'PRICING' | 'PROMOS' | 'PAYMENTS';
 
 const PLATFORM_ADMIN_EMAIL = 'quentinwg2015@gmail.com';
-const PLANS = ['ESSENTIAL', 'GROWTH', 'INTELLIGENCE', 'ENTERPRISE'] as const;
+const PLANS = ['STARTER', 'ESSENTIAL', 'GROWTH', 'INTELLIGENCE', 'ENTERPRISE'] as const;
 const STATUSES = ['ACTIVE', 'TRIAL', 'SUSPENDED', 'CANCELLED'] as const;
 
 export default function PlatformAdminPage() {
