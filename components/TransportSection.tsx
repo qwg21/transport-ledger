@@ -3,8 +3,19 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { buildDocNumber, explainDbError, todayLocal } from '@/lib/documents';
-import type { Customer } from '@/lib/types';
-import { Truck, Users, MapPin, Fuel, AlertTriangle, FileText } from 'lucide-react';
+import type { Customer, DocumentRecord } from '@/lib/types';
+import {
+  Truck,
+  Users,
+  MapPin,
+  Fuel,
+  AlertTriangle,
+  FileText,
+  Eye,
+  Download,
+  Share2,
+  Receipt
+} from 'lucide-react';
 
 export interface Vehicle {
   id: string;
@@ -53,26 +64,21 @@ export interface VehicleCost {
   notes: string | null;
 }
 
-interface LinkedDoc {
-  id: string;
-  doc_type: string;
-  doc_number: string;
-  chain_code: string;
-  status: string;
-  amount: number;
-  amount_paid: number;
-}
-
 export type TransportTab = 'TRIPS' | 'FLEET' | 'DRIVERS' | 'COSTS';
 
 type Props = {
   orgId: string;
   currency: string;
   customers: Customer[];
+  docs: DocumentRecord[];
   isReadOnly: boolean;
   activeTab?: TransportTab;
   onTabChange?: (tab: TransportTab) => void;
   onDocCreated?: () => void;
+  onPreviewPdf?: (item: DocumentRecord) => void;
+  onDownloadPdf?: (item: DocumentRecord) => void;
+  onSharePdf?: (item: DocumentRecord) => void;
+  onOpenReceipt?: (item: DocumentRecord) => void;
 };
 
 function licenseAlertStatus(expiry: string | null): 'EXPIRED' | 'SOON' | 'OK' {
@@ -87,10 +93,15 @@ export default function TransportSection({
   orgId,
   currency,
   customers,
+  docs,
   isReadOnly,
   activeTab,
   onTabChange,
-  onDocCreated
+  onDocCreated,
+  onPreviewPdf,
+  onDownloadPdf,
+  onSharePdf,
+  onOpenReceipt
 }: Props) {
   const [internalTab, setInternalTab] = useState<TransportTab>('TRIPS');
   const tab = activeTab ?? internalTab;
@@ -103,7 +114,6 @@ export default function TransportSection({
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
   const [costs, setCosts] = useState<VehicleCost[]>([]);
-  const [linkedDocs, setLinkedDocs] = useState<LinkedDoc[]>([]);
   const [billingTripId, setBillingTripId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -142,44 +152,32 @@ export default function TransportSection({
   const [costVendor, setCostVendor] = useState('');
 
   const loadData = useCallback(async () => {
-    const [vRes, dRes, tRes, cRes, docRes] = await Promise.all([
+    const [vRes, dRes, tRes, cRes] = await Promise.all([
       supabase.from('vehicles').select('*').eq('org_id', orgId).order('registration_no'),
       supabase.from('drivers').select('*').eq('org_id', orgId).order('full_name'),
       supabase.from('trips').select('*').eq('org_id', orgId).order('trip_date', { ascending: false }).limit(50),
-      supabase.from('vehicle_costs').select('*').eq('org_id', orgId).order('cost_date', { ascending: false }).limit(50),
-      supabase
-        .from('documents')
-        .select('id, doc_type, doc_number, chain_code, status, amount, amount_paid')
-        .eq('org_id', orgId)
-        .in('doc_type', ['QUOTE', 'INVOICE'])
+      supabase.from('vehicle_costs').select('*').eq('org_id', orgId).order('cost_date', { ascending: false }).limit(50)
     ]);
     if (!vRes.error) setVehicles((vRes.data as Vehicle[] | null) ?? []);
     if (!dRes.error) setDrivers((dRes.data as Driver[] | null) ?? []);
     if (!tRes.error) setTrips((tRes.data as Trip[] | null) ?? []);
     if (!cRes.error) setCosts((cRes.data as VehicleCost[] | null) ?? []);
-    if (!docRes.error) setLinkedDocs((docRes.data as LinkedDoc[] | null) ?? []);
   }, [orgId]);
 
   useEffect(() => {
     let active = true;
     async function init() {
-      const [vRes, dRes, tRes, cRes, docRes] = await Promise.all([
+      const [vRes, dRes, tRes, cRes] = await Promise.all([
         supabase.from('vehicles').select('*').eq('org_id', orgId).order('registration_no'),
         supabase.from('drivers').select('*').eq('org_id', orgId).order('full_name'),
         supabase.from('trips').select('*').eq('org_id', orgId).order('trip_date', { ascending: false }).limit(50),
-        supabase.from('vehicle_costs').select('*').eq('org_id', orgId).order('cost_date', { ascending: false }).limit(50),
-        supabase
-          .from('documents')
-          .select('id, doc_type, doc_number, chain_code, status, amount, amount_paid')
-          .eq('org_id', orgId)
-          .in('doc_type', ['QUOTE', 'INVOICE'])
+        supabase.from('vehicle_costs').select('*').eq('org_id', orgId).order('cost_date', { ascending: false }).limit(50)
       ]);
       if (!active) return;
       if (!vRes.error) setVehicles((vRes.data as Vehicle[] | null) ?? []);
       if (!dRes.error) setDrivers((dRes.data as Driver[] | null) ?? []);
       if (!tRes.error) setTrips((tRes.data as Trip[] | null) ?? []);
       if (!cRes.error) setCosts((cRes.data as VehicleCost[] | null) ?? []);
-      if (!docRes.error) setLinkedDocs((docRes.data as LinkedDoc[] | null) ?? []);
     }
     init();
     return () => {
@@ -190,7 +188,7 @@ export default function TransportSection({
   const vehicleMap = useMemo(() => new Map(vehicles.map(v => [v.id, v])), [vehicles]);
   const driverMap = useMemo(() => new Map(drivers.map(d => [d.id, d])), [drivers]);
   const customerMap = useMemo(() => new Map(customers.map(c => [c.id, c])), [customers]);
-  const docMap = useMemo(() => new Map(linkedDocs.map(d => [d.id, d])), [linkedDocs]);
+  const docMap = useMemo(() => new Map(docs.map(d => [d.id, d])), [docs]);
 
   const costByTrip = useMemo(() => {
     const map = new Map<string, number>();
@@ -385,6 +383,20 @@ export default function TransportSection({
     setErrorMsg(null);
     try {
       const existingQuote = trip.quote_id ? docMap.get(trip.quote_id) : undefined;
+
+      // If this quote was already converted in Sales & Invoices, link the existing invoice instead of creating a duplicate
+      if (docType === 'INVOICE' && existingQuote) {
+        const existingInv = docs.find(
+          d => d.doc_type === 'INVOICE' && d.chain_code === existingQuote.chain_code && d.status !== 'VOID'
+        );
+        if (existingInv) {
+          await supabase.from('trips').update({ invoice_id: existingInv.id }).eq('id', trip.id);
+          await loadData();
+          onDocCreated?.();
+          return;
+        }
+      }
+
       const year = todayLocal().slice(0, 4);
       const chainCode =
         docType === 'INVOICE' && existingQuote
@@ -592,7 +604,7 @@ export default function TransportSection({
                   <th className="py-2 px-2">Vehicle / Driver</th>
                   <th className="py-2 px-2">Fare &amp; Costs</th>
                   <th className="py-2 px-2">Status</th>
-                  <th className="py-2 px-2">Billing (Quote / Invoice)</th>
+                  <th className="py-2 px-2">Billing, PDF &amp; Receipt</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -601,8 +613,13 @@ export default function TransportSection({
                   const d = t.driver_id ? driverMap.get(t.driver_id) : undefined;
                   const tripCost = costByTrip.get(t.id) || 0;
                   const quote = t.quote_id ? docMap.get(t.quote_id) : undefined;
-                  const invoice = t.invoice_id ? docMap.get(t.invoice_id) : undefined;
+                  const invoice =
+                    (t.invoice_id ? docMap.get(t.invoice_id) : undefined) ??
+                    (quote
+                      ? docs.find(doc => doc.doc_type === 'INVOICE' && doc.chain_code === quote.chain_code && doc.status !== 'VOID')
+                      : undefined);
                   const busy = billingTripId === t.id;
+                  const activeDoc = invoice ?? quote;
                   return (
                     <tr key={t.id}>
                       <td className="py-2.5 px-2">
@@ -636,12 +653,12 @@ export default function TransportSection({
                       </td>
                       <td className="py-2.5 px-2">
                         {invoice ? (
-                          <div className="space-y-0.5">
-                            <span className="inline-flex items-center gap-1 font-mono font-semibold text-slate-800">
-                              <FileText className="w-3 h-3 text-blue-600" />
-                              {invoice.doc_number}
-                            </span>
-                            <div>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-flex items-center gap-1 font-mono font-semibold text-slate-800">
+                                <FileText className="w-3 h-3 text-blue-600" />
+                                {invoice.doc_number}
+                              </span>
                               <span
                                 className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
                                   invoice.status === 'PAID'
@@ -654,10 +671,53 @@ export default function TransportSection({
                                 {invoice.status}
                               </span>
                             </div>
+                            <div className="flex flex-wrap items-center gap-1">
+                              {onPreviewPdf && (
+                                <button type="button" onClick={() => onPreviewPdf(invoice)} title="Preview PDF" className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded">
+                                  <Eye className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              {onDownloadPdf && (
+                                <button type="button" onClick={() => onDownloadPdf(invoice)} title="Download PDF" className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded">
+                                  <Download className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              {onSharePdf && (
+                                <button type="button" onClick={() => onSharePdf(invoice)} title="Share PDF" className="p-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded">
+                                  <Share2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              {!isReadOnly && (invoice.status === 'UNPAID' || invoice.status === 'PARTIAL') && onOpenReceipt && (
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenReceipt(invoice)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold"
+                                >
+                                  <Receipt className="w-3 h-3" /> Receipt
+                                </button>
+                              )}
+                            </div>
                           </div>
                         ) : quote ? (
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="font-mono text-slate-700 font-semibold">{quote.doc_number}</span>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono text-slate-700 font-semibold">{quote.doc_number}</span>
+                              {activeDoc && onPreviewPdf && (
+                                <button type="button" onClick={() => onPreviewPdf(quote)} title="Preview PDF" className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded">
+                                  <Eye className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              {activeDoc && onDownloadPdf && (
+                                <button type="button" onClick={() => onDownloadPdf(quote)} title="Download PDF" className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded">
+                                  <Download className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              {activeDoc && onSharePdf && (
+                                <button type="button" onClick={() => onSharePdf(quote)} title="Share PDF" className="p-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded">
+                                  <Share2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
                             {!isReadOnly && t.status !== 'CANCELLED' && (
                               <button
                                 type="button"

@@ -521,6 +521,10 @@ export default function AccountingApp() {
       if (convertErr) warnings.push(`the quotation could not be marked converted (${convertErr.message})`);
 
       if (warnings.length > 0) alert(`Invoice ${newInvoice.doc_number} created, but ${warnings.join(' and ')}.`);
+      await supabase
+        .from('trips')
+        .update({ invoice_id: newInvoice.id })
+        .eq('quote_id', quote.id);
       await loadOrgData(org.id);
     } finally {
       setIsSubmitting(false);
@@ -1173,10 +1177,20 @@ export default function AccountingApp() {
             orgId={org.id}
             currency={currency}
             customers={customers}
+            docs={docs}
             isReadOnly={subscriptionLocked}
             activeTab={transportTab}
             onTabChange={setTransportTab}
             onDocCreated={() => loadOrgData(org.id)}
+            onPreviewPdf={handlePreviewPDF}
+            onDownloadPdf={handleDownloadPDF}
+            onSharePdf={handleSharePDF}
+            onOpenReceipt={item => {
+              setReceiptTarget(item);
+              setReceiptAmount(String(invoiceBalance(item)));
+              setReceiptMethod('M-PESA');
+              setReceiptRef('');
+            }}
           />
         )}
 
