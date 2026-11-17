@@ -3,9 +3,9 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { todayLocal } from '@/lib/documents';
-import { Truck, Users, MapPin, Fuel } from 'lucide-react';
+import { Truck, Users, MapPin, Fuel, AlertTriangle } from 'lucide-react';
 
-interface Vehicle {
+export interface Vehicle {
   id: string;
   registration_no: string;
   make_model: string;
@@ -15,7 +15,7 @@ interface Vehicle {
   current_odometer_km: number;
 }
 
-interface Driver {
+export interface Driver {
   id: string;
   full_name: string;
   phone: string | null;
@@ -24,7 +24,7 @@ interface Driver {
   status: 'ACTIVE' | 'INACTIVE';
 }
 
-interface Trip {
+export interface Trip {
   id: string;
   trip_code: string;
   trip_date: string;
@@ -38,7 +38,7 @@ interface Trip {
   status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 }
 
-interface VehicleCost {
+export interface VehicleCost {
   id: string;
   cost_date: string;
   vehicle_id: string | null;
@@ -49,16 +49,32 @@ interface VehicleCost {
   notes: string | null;
 }
 
-type TransportTab = 'TRIPS' | 'FLEET' | 'DRIVERS' | 'COSTS';
+export type TransportTab = 'TRIPS' | 'FLEET' | 'DRIVERS' | 'COSTS';
 
 type Props = {
   orgId: string;
   currency: string;
   isReadOnly: boolean;
+  activeTab?: TransportTab;
+  onTabChange?: (tab: TransportTab) => void;
 };
 
-export default function TransportSection({ orgId, currency, isReadOnly }: Props) {
-  const [tab, setTab] = useState<TransportTab>('TRIPS');
+function licenseAlertStatus(expiry: string | null): 'EXPIRED' | 'SOON' | 'OK' {
+  if (!expiry) return 'OK';
+  const today = todayLocal();
+  if (expiry < today) return 'EXPIRED';
+  const diffDays = (new Date(expiry).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24);
+  return diffDays <= 30 ? 'SOON' : 'OK';
+}
+
+export default function TransportSection({ orgId, currency, isReadOnly, activeTab, onTabChange }: Props) {
+  const [internalTab, setInternalTab] = useState<TransportTab>('TRIPS');
+  const tab = activeTab ?? internalTab;
+  const setTab = (next: TransportTab) => {
+    setInternalTab(next);
+    onTabChange?.(next);
+  };
+
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [trips, setTrips] = useState<Trip[]>([]);
@@ -139,6 +155,25 @@ export default function TransportSection({ orgId, currency, isReadOnly }: Props)
     return map;
   }, [costs]);
 
+  const vehicleStats = useMemo(() => {
+    const map = new Map<string, { revenue: number; costs: number; trips: number }>();
+    for (const v of vehicles) map.set(v.id, { revenue: 0, costs: 0, trips: 0 });
+    for (const t of trips) {
+      if (t.status !== 'CANCELLED' && t.vehicle_id && map.has(t.vehicle_id)) {
+        const cur = map.get(t.vehicle_id)!;
+        cur.revenue += Number(t.agreed_fare);
+        cur.trips += 1;
+      }
+    }
+    for (const c of costs) {
+      if (c.vehicle_id && map.has(c.vehicle_id)) {
+        const cur = map.get(c.vehicle_id)!;
+        cur.costs += Number(c.amount_kes);
+      }
+    }
+    return map;
+  }, [vehicles, trips, costs]);
+
   const kpis = useMemo(() => {
     const activeTrips = trips.filter(t => t.status !== 'CANCELLED');
     const totalFares = activeTrips.reduce((s, t) => s + Number(t.agreed_fare), 0);
@@ -170,6 +205,12 @@ export default function TransportSection({ orgId, currency, isReadOnly }: Props)
     setRegNo('');
     setMakeModel('');
     loadData();
+  };
+
+  const handleVehicleStatus = async (vehicleId: string, status: Vehicle['status']) => {
+    const { error } = await supabase.from('vehicles').update({ status }).eq('id', vehicleId);
+    if (error) setErrorMsg(error.message);
+    else loadData();
   };
 
   const handleAddDriver = async (e: React.FormEvent) => {
@@ -350,7 +391,7 @@ export default function TransportSection({ orgId, currency, isReadOnly }: Props)
                       </td>
                       <td className="py-2.5 px-2">
                         <div className="font-semibold text-slate-800">{t.client_name}</div>
-                        <div className="text-slate-500">{t.origin} → {t.destination}</div>
+                        <div className="text-slate-500">{t.origin} &rarr; {t.destination}</div>
                       </td>
                       <td className="py-2.5 px-2 text-slate-600">
                         <div>{v ? v.registration_no : '-'}</div>
@@ -384,7 +425,7 @@ export default function TransportSection({ orgId, currency, isReadOnly }: Props)
       {/* FLEET */}
       {tab === 'FLEET' && (
         <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
-          <h3 className="text-sm font-bold text-slate-900">Fleet Registry</h3>
+          <h3 className="text-sm font-bold text-slate-900">Fleet Registry &amp; Vehicle Unit Economics</h3>
           {!isReadOnly && (
             <form onSubmit={handleAddVehicle} className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
               <input type="text" required placeholder="Reg No (e.g. KDK 123A)" value={regNo} onChange={e => setRegNo(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs uppercase" />
@@ -401,17 +442,52 @@ export default function TransportSection({ orgId, currency, isReadOnly }: Props)
               <button type="submit" className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold">Add Vehicle</button>
             </form>
           )}
-          <div className="divide-y divide-slate-100 text-xs">
-            {vehicles.map(v => (
-              <div key={v.id} className="py-2.5 flex justify-between items-center">
-                <div>
-                  <span className="font-mono font-bold text-slate-900">{v.registration_no}</span>
-                  <span className="ml-2 text-slate-600">{v.make_model} ({v.vehicle_type})</span>
-                </div>
-                <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-semibold">{v.status}</span>
-              </div>
-            ))}
-            {vehicles.length === 0 && <p className="text-slate-400">No vehicles registered yet.</p>}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="uppercase text-slate-500 border-b border-slate-200">
+                <tr>
+                  <th className="py-2 px-2">Vehicle</th>
+                  <th className="py-2 px-2">Trips</th>
+                  <th className="py-2 px-2">Revenue</th>
+                  <th className="py-2 px-2">Direct Costs</th>
+                  <th className="py-2 px-2">Net Margin</th>
+                  <th className="py-2 px-2">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {vehicles.map(v => {
+                  const st = vehicleStats.get(v.id) ?? { revenue: 0, costs: 0, trips: 0 };
+                  const margin = st.revenue - st.costs;
+                  return (
+                    <tr key={v.id}>
+                      <td className="py-2.5 px-2">
+                        <span className="font-mono font-bold text-slate-900">{v.registration_no}</span>
+                        <span className="ml-2 text-slate-600">{v.make_model} ({v.vehicle_type})</span>
+                      </td>
+                      <td className="py-2.5 px-2">{st.trips}</td>
+                      <td className="py-2.5 px-2 font-semibold text-blue-600">{currency} {st.revenue.toLocaleString()}</td>
+                      <td className="py-2.5 px-2 text-rose-600">{currency} {st.costs.toLocaleString()}</td>
+                      <td className={`py-2.5 px-2 font-bold ${margin >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {currency} {margin.toLocaleString()}
+                      </td>
+                      <td className="py-2.5 px-2">
+                        <select
+                          disabled={isReadOnly}
+                          value={v.status}
+                          onChange={e => handleVehicleStatus(v.id, e.target.value as Vehicle['status'])}
+                          className="border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white font-semibold"
+                        >
+                          <option value="ACTIVE">ACTIVE</option>
+                          <option value="MAINTENANCE">MAINTENANCE</option>
+                          <option value="INACTIVE">INACTIVE</option>
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {vehicles.length === 0 && <tr><td colSpan={6} className="py-4 text-slate-400">No vehicles registered yet.</td></tr>}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -419,7 +495,7 @@ export default function TransportSection({ orgId, currency, isReadOnly }: Props)
       {/* DRIVERS */}
       {tab === 'DRIVERS' && (
         <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
-          <h3 className="text-sm font-bold text-slate-900">Drivers</h3>
+          <h3 className="text-sm font-bold text-slate-900">Drivers &amp; License Compliance</h3>
           {!isReadOnly && (
             <form onSubmit={handleAddDriver} className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
               <input type="text" required placeholder="Full Name" value={driverName} onChange={e => setDriverName(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
@@ -430,15 +506,33 @@ export default function TransportSection({ orgId, currency, isReadOnly }: Props)
             </form>
           )}
           <div className="divide-y divide-slate-100 text-xs">
-            {drivers.map(d => (
-              <div key={d.id} className="py-2.5 flex justify-between items-center">
-                <div>
-                  <span className="font-semibold text-slate-900">{d.full_name}</span>
-                  <span className="ml-2 text-slate-500">{d.phone || '-'} &middot; Lic: {d.license_no || '-'}</span>
+            {drivers.map(d => {
+              const alertState = licenseAlertStatus(d.license_expiry);
+              return (
+                <div key={d.id} className="py-2.5 flex flex-wrap justify-between items-center gap-2">
+                  <div>
+                    <span className="font-semibold text-slate-900">{d.full_name}</span>
+                    <span className="ml-2 text-slate-500">
+                      {d.phone || '-'} &middot; Lic: {d.license_no || '-'}
+                      {d.license_expiry ? ` (Exp: ${d.license_expiry})` : ''}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {alertState !== 'OK' && (
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded font-semibold ${
+                          alertState === 'EXPIRED' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'
+                        }`}
+                      >
+                        <AlertTriangle className="w-3 h-3" />
+                        {alertState === 'EXPIRED' ? 'License Expired' : 'Expiring Soon'}
+                      </span>
+                    )}
+                    <span className="px-2 py-0.5 rounded bg-slate-100 font-semibold">{d.status}</span>
+                  </div>
                 </div>
-                <span className="px-2 py-0.5 rounded bg-slate-100 font-semibold">{d.status}</span>
-              </div>
-            ))}
+              );
+            })}
             {drivers.length === 0 && <p className="text-slate-400">No drivers added yet.</p>}
           </div>
         </div>
@@ -472,14 +566,19 @@ export default function TransportSection({ orgId, currency, isReadOnly }: Props)
             </form>
           )}
           <div className="divide-y divide-slate-100 text-xs">
-            {costs.map(c => (
-              <div key={c.id} className="py-2.5 flex justify-between items-center">
-                <span>
-                  <strong>{c.cost_type}</strong> &middot; {c.cost_date} {c.vendor ? `(${c.vendor})` : ''}
-                </span>
-                <span className="font-semibold text-rose-600">{currency} {Number(c.amount_kes).toLocaleString()}</span>
-              </div>
-            ))}
+            {costs.map(c => {
+              const v = c.vehicle_id ? vehicleMap.get(c.vehicle_id) : undefined;
+              return (
+                <div key={c.id} className="py-2.5 flex justify-between items-center">
+                  <span>
+                    <strong>{c.cost_type}</strong> &middot; {c.cost_date}
+                    {v ? ` · ${v.registration_no}` : ''}
+                    {c.vendor ? ` (${c.vendor})` : ''}
+                  </span>
+                  <span className="font-semibold text-rose-600">{currency} {Number(c.amount_kes).toLocaleString()}</span>
+                </div>
+              );
+            })}
             {costs.length === 0 && <p className="text-slate-400">No fleet costs logged yet.</p>}
           </div>
         </div>
