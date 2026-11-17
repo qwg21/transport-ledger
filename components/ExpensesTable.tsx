@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+import { supabase } from '@/lib/supabase';
 import type { Expense } from '@/lib/types';
 import { Eye } from 'lucide-react';
 
@@ -18,6 +20,33 @@ export default function ExpensesTable({
   expenseLimit,
   onShowMore
 }: Props) {
+  const [openingId, setOpeningId] = useState<string | null>(null);
+
+  const handleViewReceipt = async (exp: ExpenseWithReceipt) => {
+    if (!exp.receipt_url) return;
+
+    if (exp.receipt_url.startsWith('http')) {
+      window.open(exp.receipt_url, '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    setOpeningId(exp.id);
+    try {
+      const { data, error } = await supabase.storage
+        .from('expense-receipts')
+        .createSignedUrl(exp.receipt_url, 60);
+
+      if (error || !data?.signedUrl) {
+        alert(`Could not open receipt: ${error?.message ?? 'missing signed URL'}`);
+        return;
+      }
+
+      window.open(data.signedUrl, '_blank', 'noopener,noreferrer');
+    } finally {
+      setOpeningId(null);
+    }
+  };
+
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
       <h3 className="font-bold text-slate-800">Operating Expenses ({expenses.length})</h3>
@@ -47,14 +76,14 @@ export default function ExpensesTable({
                 </td>
                 <td className="py-2.5 px-2 text-xs">
                   {exp.receipt_url ? (
-                    <a
-                      href={exp.receipt_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-blue-600 hover:underline font-medium"
+                    <button
+                      type="button"
+                      disabled={openingId === exp.id}
+                      onClick={() => handleViewReceipt(exp)}
+                      className="inline-flex items-center gap-1 text-blue-600 hover:underline font-medium disabled:opacity-50"
                     >
-                      <Eye className="w-3.5 h-3.5" /> View
-                    </a>
+                      <Eye className="w-3.5 h-3.5" /> {openingId === exp.id ? 'Opening...' : 'View'}
+                    </button>
                   ) : (
                     <span className="text-slate-300">—</span>
                   )}

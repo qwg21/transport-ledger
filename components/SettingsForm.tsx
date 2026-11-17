@@ -4,15 +4,26 @@ import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Membership } from '@/lib/types';
 import PdfTemplatePicker from '@/components/PdfTemplatePicker';
+import TeamManagementSection from '@/components/TeamManagementSection';
 import { Upload } from 'lucide-react';
 
 type Props = {
   org: Membership;
   onOrgChange: (updated: Membership) => void;
   onSaved: () => void;
+  isIntelligencePlus?: boolean;
+  currentUserId?: string;
+  isReadOnly?: boolean;
 };
 
-export default function SettingsForm({ org, onOrgChange, onSaved }: Props) {
+export default function SettingsForm({
+  org,
+  onOrgChange,
+  onSaved,
+  isIntelligencePlus = false,
+  currentUserId,
+  isReadOnly = false
+}: Props) {
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
 
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -71,41 +82,51 @@ export default function SettingsForm({ org, onOrgChange, onSaved }: Props) {
   };
 
   return (
-    <form onSubmit={handleSaveSettings} className="bg-white border border-slate-200 rounded-2xl p-6 max-w-2xl space-y-5">
-      <div>
-        <label className="text-xs font-medium text-slate-600 block mb-1">Company Logo (PNG/JPG)</label>
-        <div className="flex items-center gap-4">
-          {/* eslint-disable-next-line @next/next/no-img-element -- Supabase Storage URL or legacy data: URL */}
-          {org.logo_url && <img src={org.logo_url} alt="Logo" className="w-14 h-14 rounded-xl border border-slate-200 object-contain p-1" />}
-          <label className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-semibold cursor-pointer">
-            <Upload className="w-4 h-4" /> {isUploadingLogo ? 'Uploading...' : 'Upload Logo'}
-            <input type="file" accept="image/png, image/jpeg" onChange={handleLogoUpload} disabled={isUploadingLogo} className="hidden" />
-          </label>
+    <div className="space-y-6">
+      <form onSubmit={handleSaveSettings} className="bg-white border border-slate-200 rounded-2xl p-6 max-w-2xl space-y-5">
+        <div>
+          <label className="text-xs font-medium text-slate-600 block mb-1">Company Logo (PNG/JPG)</label>
+          <div className="flex items-center gap-4">
+            {/* eslint-disable-next-line @next/next/no-img-element -- Supabase Storage URL or legacy data: URL */}
+            {org.logo_url && <img src={org.logo_url} alt="Logo" className="w-14 h-14 rounded-xl border border-slate-200 object-contain p-1" />}
+            <label className="flex items-center gap-2 px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-semibold cursor-pointer">
+              <Upload className="w-4 h-4" /> {isUploadingLogo ? 'Uploading...' : 'Upload Logo'}
+              <input type="file" accept="image/png, image/jpeg" onChange={handleLogoUpload} disabled={isUploadingLogo} className="hidden" />
+            </label>
+          </div>
         </div>
-      </div>
 
-      <PdfTemplatePicker
-        value={org.pdf_template || 'MODERN'}
-        accentColor={org.pdf_accent_color || '#0f172a'}
-        onChange={templateId =>
-          onOrgChange({ ...org, pdf_template: templateId as Membership['pdf_template'] })
-        }
+        <PdfTemplatePicker
+          value={org.pdf_template || 'MODERN'}
+          accentColor={org.pdf_accent_color || '#0f172a'}
+          onChange={templateId =>
+            onOrgChange({ ...org, pdf_template: templateId as Membership['pdf_template'] })
+          }
+        />
+
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="text-xs font-medium text-slate-600">Company Name</label><input type="text" required value={org.name || ''} onChange={e => onOrgChange({ ...org, name: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
+          <div><label className="text-xs font-medium text-slate-600">Industry</label><input type="text" value={org.industry || ''} onChange={e => onOrgChange({ ...org, industry: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
+          <div><label className="text-xs font-medium text-slate-600">Brand Accent Color</label><input type="color" value={org.pdf_accent_color || '#0f172a'} onChange={e => onOrgChange({ ...org, pdf_accent_color: e.target.value })} className="w-full h-10 rounded-xl border border-slate-300 mt-1 cursor-pointer" /></div>
+          <div><label className="text-xs font-medium text-slate-600">Currency</label><input type="text" value={org.currency || 'KES'} onChange={e => onOrgChange({ ...org, currency: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
+          <div><label className="text-xs font-medium text-slate-600">Phone</label><input type="text" value={org.phone || ''} onChange={e => onOrgChange({ ...org, phone: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
+          <div><label className="text-xs font-medium text-slate-600">Email</label><input type="email" value={org.email || ''} onChange={e => onOrgChange({ ...org, email: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
+          <div><label className="text-xs font-medium text-slate-600">KRA PIN</label><input type="text" value={org.kra_pin || ''} onChange={e => onOrgChange({ ...org, kra_pin: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
+          <div><label className="text-xs font-medium text-slate-600">Address</label><input type="text" value={org.address || ''} onChange={e => onOrgChange({ ...org, address: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
+        </div>
+        <div><label className="text-xs font-medium text-slate-600">Tagline</label><input type="text" value={org.tagline || ''} onChange={e => onOrgChange({ ...org, tagline: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
+        <div><label className="text-xs font-medium text-slate-600">Payment Instructions</label><input type="text" value={org.payment_instructions || ''} onChange={e => onOrgChange({ ...org, payment_instructions: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
+        <div><label className="text-xs font-medium text-slate-600">Footer Note</label><input type="text" value={org.pdf_footer_note || ''} onChange={e => onOrgChange({ ...org, pdf_footer_note: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
+        <button type="submit" disabled={isReadOnly} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">Save Settings</button>
+      </form>
+
+      <TeamManagementSection
+        orgId={org.id}
+        userRole={org.role}
+        currentUserId={currentUserId}
+        isIntelligencePlus={isIntelligencePlus}
+        isReadOnly={isReadOnly}
       />
-
-      <div className="grid grid-cols-2 gap-3">
-        <div><label className="text-xs font-medium text-slate-600">Company Name</label><input type="text" required value={org.name || ''} onChange={e => onOrgChange({ ...org, name: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
-        <div><label className="text-xs font-medium text-slate-600">Industry</label><input type="text" value={org.industry || ''} onChange={e => onOrgChange({ ...org, industry: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
-        <div><label className="text-xs font-medium text-slate-600">Brand Accent Color</label><input type="color" value={org.pdf_accent_color || '#0f172a'} onChange={e => onOrgChange({ ...org, pdf_accent_color: e.target.value })} className="w-full h-10 rounded-xl border border-slate-300 mt-1 cursor-pointer" /></div>
-        <div><label className="text-xs font-medium text-slate-600">Currency</label><input type="text" value={org.currency || 'KES'} onChange={e => onOrgChange({ ...org, currency: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
-        <div><label className="text-xs font-medium text-slate-600">Phone</label><input type="text" value={org.phone || ''} onChange={e => onOrgChange({ ...org, phone: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
-        <div><label className="text-xs font-medium text-slate-600">Email</label><input type="email" value={org.email || ''} onChange={e => onOrgChange({ ...org, email: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
-        <div><label className="text-xs font-medium text-slate-600">KRA PIN</label><input type="text" value={org.kra_pin || ''} onChange={e => onOrgChange({ ...org, kra_pin: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
-        <div><label className="text-xs font-medium text-slate-600">Address</label><input type="text" value={org.address || ''} onChange={e => onOrgChange({ ...org, address: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
-      </div>
-      <div><label className="text-xs font-medium text-slate-600">Tagline</label><input type="text" value={org.tagline || ''} onChange={e => onOrgChange({ ...org, tagline: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
-      <div><label className="text-xs font-medium text-slate-600">Payment Instructions</label><input type="text" value={org.payment_instructions || ''} onChange={e => onOrgChange({ ...org, payment_instructions: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
-      <div><label className="text-xs font-medium text-slate-600">Footer Note</label><input type="text" value={org.pdf_footer_note || ''} onChange={e => onOrgChange({ ...org, pdf_footer_note: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
-      <button type="submit" className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold">Save Settings</button>
-    </form>
+    </div>
   );
 }

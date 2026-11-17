@@ -25,6 +25,7 @@ import SalesDocumentsTable from '@/components/SalesDocumentsTable';
 import ExpensesTable, { type ExpenseWithReceipt } from '@/components/ExpensesTable';
 import DocumentModal from '@/components/DocumentModal';
 import SettingsForm from '@/components/SettingsForm';
+import IntelligenceSection from '@/components/IntelligenceSection';
 import {
   LayoutDashboard,
   FileText,
@@ -41,10 +42,11 @@ import {
   Building2,
   AlertCircle,
   Users,
-  Package
+  Package,
+  BarChart3
 } from 'lucide-react';
 
-type Section = 'OVERVIEW' | 'SALES' | 'EXPENSES' | 'CUSTOMERS' | 'CATALOGUE' | 'SETTINGS';
+type Section = 'OVERVIEW' | 'SALES' | 'EXPENSES' | 'CUSTOMERS' | 'CATALOGUE' | 'INTELLIGENCE' | 'SETTINGS';
 
 const PAGE_SIZE = 25;
 const PLATFORM_ADMIN_EMAIL = 'quentinwg2015@gmail.com';
@@ -317,6 +319,7 @@ export default function AccountingApp() {
       sub.current_period_end < todayLocal())
   );
   const isGrowthPlus = Boolean(sub && sub.plan !== 'ESSENTIAL');
+  const isIntelligencePlus = Boolean(sub && (sub.plan === 'INTELLIGENCE' || sub.plan === 'ENTERPRISE'));
 
   const handleDeleteQuote = async (quote: DocumentRecord) => {
     if (!org) return;
@@ -485,15 +488,14 @@ export default function AccountingApp() {
         const safeName = expenseReceiptFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         const path = `${org.id}/expenses/${Date.now()}-${safeName}`;
         const { error: uploadErr } = await supabase.storage
-          .from('business-assets')
+          .from('expense-receipts')
           .upload(path, expenseReceiptFile, { upsert: true });
 
         if (uploadErr) {
           alert(`Receipt upload failed: ${uploadErr.message}`);
           return;
         }
-        const { data: urlData } = supabase.storage.from('business-assets').getPublicUrl(path);
-        receiptUrl = urlData.publicUrl;
+        receiptUrl = path;
       }
 
       const { error } = await supabase.from('expenses').insert([{
@@ -587,6 +589,7 @@ export default function AccountingApp() {
     { id: 'SALES', label: 'Sales & Documents', icon: FileText },
     { id: 'EXPENSES', label: 'Expenses', icon: ReceiptText },
     ...(isGrowthPlus ? growthNavItems : []),
+    ...(isIntelligencePlus ? [{ id: 'INTELLIGENCE' as Section, label: 'Intelligence', icon: BarChart3 }] : []),
     { id: 'SETTINGS', label: 'Branding & Settings', icon: Settings }
   ];
 
@@ -688,6 +691,7 @@ export default function AccountingApp() {
             {section === 'EXPENSES' && 'Purchases & Operating Expenses'}
             {section === 'CUSTOMERS' && 'Customers Directory'}
             {section === 'CATALOGUE' && 'Products & Services'}
+            {section === 'INTELLIGENCE' && 'Business Intelligence & Reports'}
             {section === 'SETTINGS' && 'Company & PDF Template Settings'}
           </h2>
           <div className="flex flex-wrap gap-2">
@@ -808,11 +812,32 @@ export default function AccountingApp() {
           />
         )}
 
-        {/* SETTINGS & PDF TEMPLATE */}
+        {/* BUSINESS INTELLIGENCE (Intelligence+ only) */}
+        {isIntelligencePlus && section === 'INTELLIGENCE' && org && (
+          <IntelligenceSection
+            orgId={org.id}
+            currency={currency}
+            docs={docs}
+            expenses={expenses}
+            customers={customers}
+            subscriptionLocked={subscriptionLocked}
+          />
+        )}
+
+       {/* SETTINGS & PDF TEMPLATE */}
         {section === 'SETTINGS' && org && (
-          <SettingsForm org={org} onOrgChange={setOrg} onSaved={loadUserAndOrgs} />
+          <SettingsForm
+            org={org}
+            onOrgChange={setOrg}
+            onSaved={loadUserAndOrgs}
+            isIntelligencePlus={isIntelligencePlus}
+            currentUserId={user.id}
+            isReadOnly={subscriptionLocked}
+          />
         )}
       </main>
+
+      
 
       {/* CREATE DOCUMENT MODAL (MULTI-ITEM) */}
       {showDocModal && org && (
