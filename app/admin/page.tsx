@@ -31,7 +31,7 @@ interface Tenant {
 }
 
 interface PlanPricingRow {
- plan: 'STARTER' | 'ESSENTIAL' | 'GROWTH' | 'INTELLIGENCE' | 'ENTERPRISE';
+  plan: 'STARTER' | 'ESSENTIAL' | 'GROWTH' | 'INTELLIGENCE' | 'ENTERPRISE';
   display_name: string;
   monthly_price_kes: number;
   promo_price_kes: number | null;
@@ -99,8 +99,8 @@ export default function PlatformAdminPage() {
   const [ownerEmail, setOwnerEmail] = useState('');
   const [kraPin, setKraPin] = useState('');
   const [currency, setCurrency] = useState('KES');
-  const [plan, setPlan] = useState('ESSENTIAL');
-  const [transportAddon, setTransportAddon] = useState(false);
+  const [plan, setPlan] = useState('STARTER');
+  const [selectedModules, setSelectedModules] = useState<string[]>([]);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -240,7 +240,7 @@ export default function PlatformAdminPage() {
         kraPin: kraPin || null,
         currency,
         plan,
-        transportAddon
+        enabledModules: selectedModules
       })
     });
 
@@ -270,6 +270,7 @@ export default function PlatformAdminPage() {
     setName('');
     setOwnerEmail('');
     setKraPin('');
+    setSelectedModules([]);
     loadAdminData();
   };
 
@@ -387,7 +388,7 @@ export default function PlatformAdminPage() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-slate-900">Biashara Ledger SaaS Admin</h1>
-              <p className="text-xs text-slate-500">Tenants, live plan pricing, promotional offers &amp; billing</p>
+              <p className="text-xs text-slate-500">Tenants, specialist modules, live pricing &amp; promo offers</p>
             </div>
           </div>
           <Link href="/" className="flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:underline">
@@ -425,7 +426,7 @@ export default function PlatformAdminPage() {
         <div className="flex flex-wrap gap-2">
           {(
             [
-              { id: 'TENANTS', label: 'Tenants & Subscriptions', icon: Layers },
+              { id: 'TENANTS', label: 'Tenants & Modules', icon: Layers },
               { id: 'PRICING', label: 'Plan Pricing & Offers', icon: Tag },
               { id: 'PROMOS', label: 'Promo Codes', icon: TicketPercent },
               { id: 'PAYMENTS', label: 'Payment Logs', icon: Receipt }
@@ -479,11 +480,31 @@ export default function PlatformAdminPage() {
                     ))}
                   </select>
                 </div>
-                <div className="flex items-center justify-between pt-1">
-                  <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer">
-                    <input type="checkbox" checked={transportAddon} onChange={e => setTransportAddon(e.target.checked)} className="rounded" />
-                    Enable Transport Management Add-on
-                  </label>
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-xs font-medium text-slate-600 mr-1">Specialist Modules:</span>
+                    {SPECIALIST_MODULES.map(mod => {
+                      const active = selectedModules.includes(mod.id);
+                      return (
+                        <button
+                          key={mod.id}
+                          type="button"
+                          onClick={() =>
+                            setSelectedModules(prev =>
+                              prev.includes(mod.id) ? prev.filter(m => m !== mod.id) : [...prev, mod.id]
+                            )
+                          }
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition ${
+                            active
+                              ? 'bg-blue-600 text-white border-blue-600'
+                              : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400'
+                          }`}
+                        >
+                          {mod.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                   <button type="submit" disabled={loading} className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-semibold">
                     {loading ? 'Provisioning...' : 'Provision Business'}
                   </button>
@@ -529,7 +550,7 @@ export default function PlatformAdminPage() {
                         </td>
                         <td className="py-3 px-2">
                           <select
-                            value={t.plan || 'ESSENTIAL'}
+                            value={t.plan || 'STARTER'}
                             onChange={e => handleUpdateSub(t, e.target.value, t.status ?? 'ACTIVE', !!t.transport_addon)}
                             className="border border-slate-200 rounded-lg px-2 py-1 text-xs font-semibold bg-white"
                           >
@@ -541,7 +562,7 @@ export default function PlatformAdminPage() {
                         <td className="py-3 px-2">
                           <select
                             value={t.status || 'ACTIVE'}
-                            onChange={e => handleUpdateSub(t, t.plan ?? 'ESSENTIAL', e.target.value, !!t.transport_addon)}
+                            onChange={e => handleUpdateSub(t, t.plan ?? 'STARTER', e.target.value, !!t.transport_addon)}
                             className={`border border-slate-200 rounded-lg px-2 py-1 text-xs font-semibold ${
                               t.status === 'ACTIVE'
                                 ? 'text-emerald-700 bg-emerald-50'

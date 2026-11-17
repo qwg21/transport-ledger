@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 const PLATFORM_ADMIN_EMAIL = 'quentinwg2015@gmail.com';
+const VALID_MODULES = new Set([
+  'TRANSPORT',
+  'MANUFACTURING',
+  'WAREHOUSE',
+  'PAYROLL',
+  'PROCUREMENT',
+  'CRM'
+]);
 
 type ProvisionBody = {
   name?: string;
@@ -11,6 +19,7 @@ type ProvisionBody = {
   currency?: string;
   plan?: string;
   transportAddon?: boolean;
+  enabledModules?: string[];
 };
 
 export async function POST(req: NextRequest) {
@@ -48,6 +57,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Business name and owner email are required.' }, { status: 400 });
   }
 
+  const normalizedModules = Array.from(
+    new Set(
+      (Array.isArray(body.enabledModules) ? body.enabledModules : [])
+        .map((m) => String(m).trim().toUpperCase())
+        .filter((m) => VALID_MODULES.has(m))
+    )
+  );
+  if (body.transportAddon && !normalizedModules.includes('TRANSPORT')) {
+    normalizedModules.push('TRANSPORT');
+  }
+
   const { data: provData, error: provError } = await userClient.rpc('platform_provision_business', {
     p_name: name,
     p_industry: body.industry?.trim() || 'General Business',
@@ -55,11 +75,22 @@ export async function POST(req: NextRequest) {
     p_kra_pin: body.kraPin?.trim() || null,
     p_currency: body.currency?.trim() || 'KES',
     p_plan: body.plan || 'ESSENTIAL',
-    p_transport_addon: !!body.transportAddon
+    p_transport_addon: normalizedModules.includes('TRANSPORT')
   });
 
   if (provError) {
     return NextResponse.json({ error: provError.message }, { status: 400 });
+  }
+
+  let modulesNote: string | null = null;
+  if (provData?.org_id && normalizedModules.length > 0) {
+    const { error: modError } = await userClient.rpc('platform_set_org_modules', {
+      p_org_id: provData.org_id,
+      p_modules: normalizedModules
+    });
+    if (modError) {
+      modulesNote = modError.message;
+    }
   }
 
   let inviteEmailSent = false;
@@ -81,6 +112,8 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     provision: provData,
+    enabledModules: normalizedModules,
+    modulesNote,
     inviteEmailSent,
     inviteNote
   });
