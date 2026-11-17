@@ -1,14 +1,26 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import type { Membership } from '@/lib/types';
+import type { Membership, Subscription } from '@/lib/types';
 import PdfTemplatePicker from '@/components/PdfTemplatePicker';
 import TeamManagementSection from '@/components/TeamManagementSection';
-import { Upload } from 'lucide-react';
+import { Upload, CreditCard } from 'lucide-react';
+
+interface PlanPrice {
+  plan: string;
+  display_name: string;
+  monthly_price_kes: number;
+  promo_price_kes: number | null;
+  promo_label: string | null;
+  promo_ends_at: string | null;
+  annual_discount_pct: number;
+  is_public: boolean;
+}
 
 type Props = {
   org: Membership;
+  sub?: Subscription | null;
   onOrgChange: (updated: Membership) => void;
   onSaved: () => void;
   isIntelligencePlus?: boolean;
@@ -18,6 +30,7 @@ type Props = {
 
 export default function SettingsForm({
   org,
+  sub,
   onOrgChange,
   onSaved,
   isIntelligencePlus = false,
@@ -25,6 +38,80 @@ export default function SettingsForm({
   isReadOnly = false
 }: Props) {
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [plans, setPlans] = useState<PlanPrice[]>([]);
+  const [selectedPlan, setSelectedPlan] = useState(sub?.plan || 'ESSENTIAL');
+  const [months, setMonths] = useState<1 | 3 | 12>(1);
+  const [promoCode, setPromoCode] = useState('');
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function loadPricing() {
+      const { data } = await supabase
+        .from('plan_pricing')
+        .select('plan, display_name, monthly_price_kes, promo_price_kes, promo_label, promo_ends_at, annual_discount_pct, is_public')
+        .eq('is_public', true)
+        .order('sort_order', { ascending: true });
+      if (active && data) {
+        setPlans(data as PlanPrice[]);
+      }
+    }
+    loadPricing();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const activePlanRow = plans.find(p => p.plan === selectedPlan);
+  const effectiveMonthly = activePlanRow
+    ? activePlanRow.promo_price_kes && activePlanRow.promo_price_kes > 0
+      ? Number(activePlanRow.promo_price_kes)
+      : Number(activePlanRow.monthly_price_kes)
+    : 0;
+  const estimatedTotal =
+    months === 12 && activePlanRow?.annual_discount_pct
+      ? Math.round(effectiveMonthly * 12 * (1 - Number(activePlanRow.annual_discount_pct) / 100))
+      : effectiveMonthly * months;
+
+  const handlePaySubscription = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBillingError(null);
+    setBillingLoading(true);
+    try {
+      const {
+        data: { session }
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setBillingError('Session expired. Please sign in again.');
+        return;
+      }
+
+      const res = await fetch('/api/paystack/initialize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          orgId: org.id,
+          plan: selectedPlan,
+          months,
+          promoCode: promoCode.trim() || undefined
+        })
+      });
+
+      const json = (await res.json()) as { authorization_url?: string; error?: string };
+      if (!res.ok || !json.authorization_url) {
+        setBillingError(json.error || 'Could not start checkout.');
+        return;
+      }
+
+      window.location.href = json.authorization_url;
+    } finally {
+      setBillingLoading(false);
+    }
+  };
 
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,6 +170,81 @@ export default function SettingsForm({
 
   return (
     <div className="space-y-6">
+      {/* Subscription & Paystack Billing */}
+      <form onSubmit={handlePaySubscription} className="bg-white border border-slate-200 rounded-2xl p-6 max-w-2xl space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm">
+              <CreditCard className="w-4 h-4 text-emerald-600" /> Subscription &amp; Billing (M-PESA / Card)
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Current Plan: <strong>{sub?.plan || 'STARTER'}</strong> &middot; Status:{' '}
+              <strong>{sub?.status || 'ACTIVE'}</strong>
+              {sub?.current_period_end ? ` · Renews ${sub.current_period_end}` : ''}
+            </p>
+          </div>
+        </div>
+
+        {billingError && (
+          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs">
+            {billingError}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="text-xs font-medium text-slate-600">Plan</label>
+            <select
+              value={selectedPlan}
+              onChange={e => setSelectedPlan(e.target.value)}
+              className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1 bg-white font-semibold"
+            >
+              {plans.map(p => (
+                <option key={p.plan} value={p.plan}>
+                  {p.display_name} (KES {(p.promo_price_kes && p.promo_price_kes > 0 ? p.promo_price_kes : p.monthly_price_kes).toLocaleString()}/mo)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-slate-600">Billing Cycle</label>
+            <select
+              value={months}
+              onChange={e => setMonths(Number(e.target.value) as 1 | 3 | 12)}
+              className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1 bg-white"
+            >
+              <option value={1}>1 Month</option>
+              <option value={3}>3 Months</option>
+              <option value={12}>
+                12 Months {activePlanRow?.annual_discount_pct ? `(-${activePlanRow.annual_discount_pct}%)` : ''}
+              </option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-slate-600">Promo Code (Optional)</label>
+            <input
+              type="text"
+              placeholder="e.g. LAUNCH30"
+              value={promoCode}
+              onChange={e => setPromoCode(e.target.value.toUpperCase())}
+              className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1 uppercase font-mono"
+            />
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={billingLoading || plans.length === 0}
+          className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold"
+        >
+          {billingLoading
+            ? 'Opening Paystack Checkout...'
+            : `Pay KES ${estimatedTotal.toLocaleString()} with M-PESA / Card`}
+        </button>
+      </form>
+
       <form onSubmit={handleSaveSettings} className="bg-white border border-slate-200 rounded-2xl p-6 max-w-2xl space-y-5">
         <div>
           <label className="text-xs font-medium text-slate-600 block mb-1">Company Logo (PNG/JPG)</label>
@@ -104,7 +266,7 @@ export default function SettingsForm({
           }
         />
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div><label className="text-xs font-medium text-slate-600">Company Name</label><input type="text" required value={org.name || ''} onChange={e => onOrgChange({ ...org, name: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
           <div><label className="text-xs font-medium text-slate-600">Industry</label><input type="text" value={org.industry || ''} onChange={e => onOrgChange({ ...org, industry: e.target.value })} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1" /></div>
           <div><label className="text-xs font-medium text-slate-600">Brand Accent Color</label><input type="color" value={org.pdf_accent_color || '#0f172a'} onChange={e => onOrgChange({ ...org, pdf_accent_color: e.target.value })} className="w-full h-10 rounded-xl border border-slate-300 mt-1 cursor-pointer" /></div>
