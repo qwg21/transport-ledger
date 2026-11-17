@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { buildDocNumber, explainDbError, todayLocal } from '@/lib/documents';
+import type { Customer } from '@/lib/types';
 import { Truck, Users, MapPin, Fuel, AlertTriangle, FileText } from 'lucide-react';
 
 export interface Vehicle {
@@ -28,6 +29,7 @@ export interface Trip {
   id: string;
   trip_code: string;
   trip_date: string;
+  customer_id?: string | null;
   vehicle_id: string | null;
   driver_id: string | null;
   client_name: string;
@@ -66,6 +68,7 @@ export type TransportTab = 'TRIPS' | 'FLEET' | 'DRIVERS' | 'COSTS';
 type Props = {
   orgId: string;
   currency: string;
+  customers: Customer[];
   isReadOnly: boolean;
   activeTab?: TransportTab;
   onTabChange?: (tab: TransportTab) => void;
@@ -83,6 +86,7 @@ function licenseAlertStatus(expiry: string | null): 'EXPIRED' | 'SOON' | 'OK' {
 export default function TransportSection({
   orgId,
   currency,
+  customers,
   isReadOnly,
   activeTab,
   onTabChange,
@@ -117,7 +121,10 @@ export default function TransportSection({
 
   // Trip form
   const [tripDate, setTripDate] = useState(todayLocal);
+  const [selectedCustomerId, setSelectedCustomerId] = useState('NEW');
   const [tripClient, setTripClient] = useState('');
+  const [tripClientPhone, setTripClientPhone] = useState('');
+  const [tripClientEmail, setTripClientEmail] = useState('');
   const [tripOrigin, setTripOrigin] = useState('');
   const [tripDest, setTripDest] = useState('');
   const [tripVehicleId, setTripVehicleId] = useState('');
@@ -180,6 +187,7 @@ export default function TransportSection({
 
   const vehicleMap = useMemo(() => new Map(vehicles.map(v => [v.id, v])), [vehicles]);
   const driverMap = useMemo(() => new Map(drivers.map(d => [d.id, d])), [drivers]);
+  const customerMap = useMemo(() => new Map(customers.map(c => [c.id, c])), [customers]);
   const docMap = useMemo(() => new Map(linkedDocs.map(d => [d.id, d])), [linkedDocs]);
 
   const costByTrip = useMemo(() => {
@@ -269,17 +277,65 @@ export default function TransportSection({
     loadData();
   };
 
+  const handleSelectCustomer = (customerId: string) => {
+    setSelectedCustomerId(customerId);
+    if (customerId === 'NEW') {
+      setTripClient('');
+      setTripClientPhone('');
+      setTripClientEmail('');
+      return;
+    }
+    const found = customerMap.get(customerId);
+    if (found) {
+      setTripClient(found.name);
+      setTripClientPhone(found.phone ?? '');
+      setTripClientEmail(found.email ?? '');
+    }
+  };
+
   const handleAddTrip = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
+
+    const cleanName = tripClient.trim();
+    if (!cleanName) {
+      setErrorMsg('Enter or select a client name.');
+      return;
+    }
+
+    let resolvedCustomerId: string | null = selectedCustomerId !== 'NEW' ? selectedCustomerId : null;
+    if (!resolvedCustomerId) {
+      const existing = customers.find(c => c.name.trim().toLowerCase() === cleanName.toLowerCase());
+      if (existing) {
+        resolvedCustomerId = existing.id;
+      } else {
+        const { data: createdCust, error: custErr } = await supabase
+          .from('customers')
+          .insert({
+            org_id: orgId,
+            name: cleanName,
+            phone: tripClientPhone.trim() || null,
+            email: tripClientEmail.trim() || null
+          })
+          .select('id')
+          .single();
+        if (custErr) {
+          setErrorMsg(custErr.message);
+          return;
+        }
+        resolvedCustomerId = createdCust?.id ?? null;
+      }
+    }
+
     const code = `TRP-${tripDate.replace(/-/g, '')}-${String(trips.length + 1).padStart(3, '0')}`;
     const { error } = await supabase.from('trips').insert({
       org_id: orgId,
       trip_code: code,
       trip_date: tripDate,
+      customer_id: resolvedCustomerId,
       vehicle_id: tripVehicleId || null,
       driver_id: tripDriverId || null,
-      client_name: tripClient.trim(),
+      client_name: cleanName,
       origin: tripOrigin.trim(),
       destination: tripDest.trim(),
       agreed_fare: Number(tripFare || 0)
@@ -288,11 +344,15 @@ export default function TransportSection({
       setErrorMsg(error.message);
       return;
     }
+    setSelectedCustomerId('NEW');
     setTripClient('');
+    setTripClientPhone('');
+    setTripClientEmail('');
     setTripOrigin('');
     setTripDest('');
     setTripFare('');
-    loadData();
+    await loadData();
+    onDocCreated?.();
   };
 
   const handleTripStatus = async (tripId: string, status: Trip['status']) => {
@@ -319,6 +379,10 @@ export default function TransportSection({
           ? existingQuote.chain_code
           : `${year}-${Math.floor(1000 + Math.random() * 9000)}`;
       const vehicle = trip.vehicle_id ? vehicleMap.get(trip.vehicle_id) : undefined;
+      const customer =
+        (trip.customer_id ? customerMap.get(trip.customer_id) : undefined) ??
+        customers.find(c => c.name.trim().toLowerCase() === trip.client_name.trim().toLowerCase());
+
       const lineDesc = `Charter / Transfer (${trip.trip_code}): ${trip.origin} to ${trip.destination} on ${trip.trip_date}${
         vehicle ? ` [${vehicle.registration_no}]` : ''
       }`;
@@ -328,16 +392,16 @@ export default function TransportSection({
         .insert([
           {
             org_id: orgId,
-            customer_id: null,
+            customer_id: customer?.id ?? trip.customer_id ?? null,
             doc_type: docType,
             chain_code: chainCode,
             doc_number: buildDocNumber(docType, chainCode),
             parent_id: docType === 'INVOICE' && existingQuote ? existingQuote.id : null,
             quote_ref: docType === 'INVOICE' && existingQuote ? existingQuote.doc_number : null,
             issue_date: todayLocal(),
-            customer_name: trip.client_name,
-            customer_phone: null,
-            customer_email: null,
+            customer_name: customer?.name ?? trip.client_name,
+            customer_phone: customer?.phone ?? null,
+            customer_email: customer?.email ?? null,
             description: lineDesc,
             amount: fare,
             amount_paid: 0,
@@ -464,21 +528,43 @@ export default function TransportSection({
         <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
           <h3 className="text-sm font-bold text-slate-900">Trips &amp; Charters</h3>
           {!isReadOnly && (
-            <form onSubmit={handleAddTrip} className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-              <input type="date" required value={tripDate} onChange={e => setTripDate(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
-              <input type="text" required placeholder="Client / Passenger" value={tripClient} onChange={e => setTripClient(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
-              <input type="text" required placeholder="Origin (e.g. JKIA)" value={tripOrigin} onChange={e => setTripOrigin(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
-              <input type="text" required placeholder="Destination (e.g. Westlands)" value={tripDest} onChange={e => setTripDest(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
-              <select value={tripVehicleId} onChange={e => setTripVehicleId(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white">
-                <option value="">Select Vehicle (Optional)</option>
-                {vehicles.map(v => <option key={v.id} value={v.id}>{v.registration_no} ({v.make_model})</option>)}
-              </select>
-              <select value={tripDriverId} onChange={e => setTripDriverId(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white">
-                <option value="">Select Driver (Optional)</option>
-                {drivers.map(d => <option key={d.id} value={d.id}>{d.full_name}</option>)}
-              </select>
-              <input type="number" required min="0" step="0.01" placeholder={`Agreed Fare (${currency})`} value={tripFare} onChange={e => setTripFare(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
-              <button type="submit" className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold">Schedule Trip</button>
+            <form onSubmit={handleAddTrip} className="space-y-2.5">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                <input type="date" required value={tripDate} onChange={e => setTripDate(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
+                <select
+                  value={selectedCustomerId}
+                  onChange={e => handleSelectCustomer(e.target.value)}
+                  className="border border-slate-300 rounded-xl p-2 text-xs bg-white font-medium"
+                >
+                  <option value="NEW">+ New Client (Save to Customers)</option>
+                  {customers.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+                <input type="text" required placeholder="Origin (e.g. JKIA)" value={tripOrigin} onChange={e => setTripOrigin(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
+                <input type="text" required placeholder="Destination (e.g. Westlands)" value={tripDest} onChange={e => setTripDest(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
+              </div>
+
+              {selectedCustomerId === 'NEW' && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 bg-slate-50 border border-slate-200 rounded-xl p-2.5">
+                  <input type="text" required placeholder="New Client / Passenger Name" value={tripClient} onChange={e => setTripClient(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white" />
+                  <input type="text" placeholder="Client Phone (Optional)" value={tripClientPhone} onChange={e => setTripClientPhone(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white" />
+                  <input type="email" placeholder="Client Email (Optional)" value={tripClientEmail} onChange={e => setTripClientEmail(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white" />
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                <select value={tripVehicleId} onChange={e => setTripVehicleId(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white">
+                  <option value="">Select Vehicle (Optional)</option>
+                  {vehicles.map(v => <option key={v.id} value={v.id}>{v.registration_no} ({v.make_model})</option>)}
+                </select>
+                <select value={tripDriverId} onChange={e => setTripDriverId(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white">
+                  <option value="">Select Driver (Optional)</option>
+                  {drivers.map(d => <option key={d.id} value={d.id}>{d.full_name}</option>)}
+                </select>
+                <input type="number" required min="0" step="0.01" placeholder={`Agreed Fare (${currency})`} value={tripFare} onChange={e => setTripFare(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
+                <button type="submit" className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold">Schedule Trip</button>
+              </div>
             </form>
           )}
           <div className="overflow-x-auto">
