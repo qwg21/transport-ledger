@@ -1172,9 +1172,11 @@ export default function AccountingApp() {
           <TransportSection
             orgId={org.id}
             currency={currency}
+            customers={customers}
             isReadOnly={subscriptionLocked}
             activeTab={transportTab}
             onTabChange={setTransportTab}
+            onDocCreated={() => loadOrgData(org.id)}
           />
         )}
 
