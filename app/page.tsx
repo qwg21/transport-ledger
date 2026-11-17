@@ -28,7 +28,13 @@ import SettingsForm from '@/components/SettingsForm';
 import IntelligenceSection from '@/components/IntelligenceSection';
 import InventorySection from '@/components/InventorySection';
 import ReportsSection from '@/components/ReportsSection';
-import TransportSection from '@/components/TransportSection';
+import TransportSection, {
+  type Driver,
+  type TransportTab,
+  type Trip,
+  type Vehicle,
+  type VehicleCost
+} from '@/components/TransportSection';
 import {
   LayoutDashboard,
   FileText,
@@ -44,11 +50,14 @@ import {
   X,
   Building2,
   AlertCircle,
+  AlertTriangle,
   Users,
   Package,
   PackageCheck,
   Scale,
   Truck,
+  MapPin,
+  Fuel,
   BarChart3
 } from 'lucide-react';
 
@@ -117,11 +126,16 @@ export default function AccountingApp() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [sub, setSub] = useState<Subscription | null>(null);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [vehicleCosts, setVehicleCosts] = useState<VehicleCost[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Navigation & Filters
   const [section, setSection] = useState<Section>('OVERVIEW');
+  const [transportTab, setTransportTab] = useState<TransportTab>('TRIPS');
   const [salesTab, setSalesTab] = useState<'ALL' | 'QUOTE' | 'INVOICE' | 'RECEIPT'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedYear, setSelectedYear] = useState('ALL');
@@ -202,12 +216,36 @@ export default function AccountingApp() {
 
     if (requestId !== loadRequestId.current) return;
 
+    const loadedSub = (subRes.data as Subscription | null) ?? null;
     setCustomers((custRes.data as Customer[] | null) ?? []);
     setProducts((prodRes.data as Product[] | null) ?? []);
-    setSub((subRes.data as Subscription | null) ?? null);
+    setSub(loadedSub);
 
     if (!docRes.error) setDocs(applyPaymentTotals((docRes.data as DocumentRecord[] | null) ?? []));
     if (!expRes.error) setExpenses((expRes.data as ExpenseWithReceipt[] | null) ?? []);
+
+    const transportEnabled = Boolean(
+      loadedSub?.transport_addon || loadedSub?.enabled_modules?.includes('TRANSPORT')
+    );
+
+    if (transportEnabled) {
+      const [vRes, dRes, tRes, cRes] = await Promise.all([
+        supabase.from('vehicles').select('*').eq('org_id', orgId).order('registration_no'),
+        supabase.from('drivers').select('*').eq('org_id', orgId).order('full_name'),
+        supabase.from('trips').select('*').eq('org_id', orgId).order('trip_date', { ascending: false }).limit(50),
+        supabase.from('vehicle_costs').select('*').eq('org_id', orgId).order('cost_date', { ascending: false }).limit(50)
+      ]);
+      if (requestId !== loadRequestId.current) return;
+      setVehicles((vRes.data as Vehicle[] | null) ?? []);
+      setDrivers((dRes.data as Driver[] | null) ?? []);
+      setTrips((tRes.data as Trip[] | null) ?? []);
+      setVehicleCosts((cRes.data as VehicleCost[] | null) ?? []);
+    } else {
+      setVehicles([]);
+      setDrivers([]);
+      setTrips([]);
+      setVehicleCosts([]);
+    }
 
     const messages = [docRes.error?.message, expRes.error?.message].filter(Boolean);
     setErrorMessage(messages.length > 0 ? messages.join(' | ') : null);
@@ -336,7 +374,50 @@ export default function AccountingApp() {
   );
   const isGrowthPlus = Boolean(sub && ['GROWTH', 'INTELLIGENCE', 'ENTERPRISE'].includes(sub.plan));
   const isIntelligencePlus = Boolean(sub && ['INTELLIGENCE', 'ENTERPRISE'].includes(sub.plan));
-  const hasTransportAddon = Boolean(sub?.transport_addon || sub?.enabled_modules?.includes('TRANSPORT'));
+  const enabledModules = Array.from(
+    new Set([
+      ...(sub?.enabled_modules ?? []),
+      ...(sub?.transport_addon ? ['TRANSPORT'] : [])
+    ])
+  );
+  const hasTransportAddon = enabledModules.includes('TRANSPORT');
+
+  // Transport Command metrics (active only when hasTransportAddon is true)
+  const activeVehiclesCount = vehicles.filter(v => v.status === 'ACTIVE').length;
+  const maintenanceVehiclesCount = vehicles.filter(v => v.status === 'MAINTENANCE').length;
+  const activeDriversCount = drivers.filter(d => d.status === 'ACTIVE').length;
+  const upcomingTrips = trips.filter(t => t.status === 'SCHEDULED' || t.status === 'IN_PROGRESS');
+  const activeTripsList = trips.filter(t => t.status !== 'CANCELLED');
+  const totalTripFares = activeTripsList.reduce((s, t) => s + Number(t.agreed_fare), 0);
+  const totalFleetCosts = vehicleCosts.reduce((s, c) => s + Number(c.amount_kes), 0);
+  const netFleetMargin = totalTripFares - totalFleetCosts;
+
+  const today = todayLocal();
+  const driverLicenseAlerts = drivers.filter(d => {
+    if (!d.license_expiry) return false;
+    if (d.license_expiry < today) return true;
+    const diffDays = (new Date(d.license_expiry).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24);
+    return diffDays <= 30;
+  });
+
+  const vehicleById = new Map(vehicles.map(v => [v.id, v]));
+  const driverById = new Map(drivers.map(d => [d.id, d]));
+
+  const vehicleBreakdown = vehicles.map(v => {
+    const rev = activeTripsList
+      .filter(t => t.vehicle_id === v.id)
+      .reduce((s, t) => s + Number(t.agreed_fare), 0);
+    const cost = vehicleCosts
+      .filter(c => c.vehicle_id === v.id)
+      .reduce((s, c) => s + Number(c.amount_kes), 0);
+    const tripCount = activeTripsList.filter(t => t.vehicle_id === v.id).length;
+    return { vehicle: v, rev, cost, margin: rev - cost, tripCount };
+  });
+
+  const openTransportTab = (nextTab: TransportTab) => {
+    setTransportTab(nextTab);
+    setSection('TRANSPORT');
+  };
 
   const handleDeleteQuote = async (quote: DocumentRecord) => {
     if (!org) return;
@@ -577,8 +658,14 @@ export default function AccountingApp() {
     const rows: unknown[][] = [
       ['Type', 'Doc Ref', 'Chain Code', 'Date', 'Client/Vendor', 'Category/Method', 'Payment Ref', `Amount (${currency})`],
       ...receipts.map(r => [
-        'RECEIPT', r.doc_number, r.chain_code, r.issue_date,
-        `${r.customer_name} - ${r.description ?? ''}`, r.payment_method, r.payment_ref, r.amount
+        'RECEIPT',
+        r.doc_number,
+        r.chain_code,
+        r.issue_date,
+        `${r.customer_name}${r.description ? ` - ${r.description}` : ''}`,
+        r.payment_method,
+        r.payment_ref,
+        r.amount
       ]),
       ...dateExpenses.map(x => [
         'EXPENSE', '', '', x.expense_date, x.vendor || 'Expense', x.category, x.notes, x.amount_kes
@@ -597,17 +684,51 @@ export default function AccountingApp() {
   };
 
   type NavItem = { id: Section; label: string; icon: typeof LayoutDashboard };
-  const navItems: NavItem[] = [
-    { id: 'OVERVIEW', label: 'Overview', icon: LayoutDashboard },
-    { id: 'SALES', label: 'Sales & Documents', icon: FileText },
+  const accountingNavItems: NavItem[] = [
+    ...(!hasTransportAddon ? [{ id: 'OVERVIEW' as Section, label: 'Overview', icon: LayoutDashboard }] : []),
+    { id: 'SALES', label: 'Sales & Invoices', icon: FileText },
     { id: 'EXPENSES', label: 'Expenses', icon: ReceiptText },
     { id: 'CUSTOMERS', label: 'Customers', icon: Users },
-    { id: 'CATALOGUE', label: 'Products & Services', icon: Package },
-    { id: 'INVENTORY', label: 'Inventory & Suppliers', icon: PackageCheck },
+    ...(!hasTransportAddon ? [{ id: 'CATALOGUE' as Section, label: 'Products & Services', icon: Package }] : []),
+    ...(isGrowthPlus || enabledModules.includes('WAREHOUSE')
+      ? [{ id: 'INVENTORY' as Section, label: 'Inventory & Suppliers', icon: PackageCheck }]
+      : []),
     { id: 'REPORTS', label: 'Financial Reports', icon: Scale },
-    ...(hasTransportAddon ? [{ id: 'TRANSPORT' as Section, label: 'Transport & Fleet', icon: Truck }] : []),
     ...(isIntelligencePlus ? [{ id: 'INTELLIGENCE' as Section, label: 'Intelligence', icon: BarChart3 }] : []),
     { id: 'SETTINGS', label: 'Branding & Settings', icon: Settings }
+  ];
+
+  const transportNavItems: { label: string; icon: typeof Truck; active: boolean; onClick: () => void }[] = [
+    {
+      label: 'Transport Command',
+      icon: LayoutDashboard,
+      active: section === 'OVERVIEW',
+      onClick: () => setSection('OVERVIEW')
+    },
+    {
+      label: 'Trips & Charters',
+      icon: MapPin,
+      active: section === 'TRANSPORT' && transportTab === 'TRIPS',
+      onClick: () => openTransportTab('TRIPS')
+    },
+    {
+      label: 'Fleet Vehicles',
+      icon: Truck,
+      active: section === 'TRANSPORT' && transportTab === 'FLEET',
+      onClick: () => openTransportTab('FLEET')
+    },
+    {
+      label: 'Drivers',
+      icon: Users,
+      active: section === 'TRANSPORT' && transportTab === 'DRIVERS',
+      onClick: () => openTransportTab('DRIVERS')
+    },
+    {
+      label: 'Fuel & Fleet Costs',
+      icon: Fuel,
+      active: section === 'TRANSPORT' && transportTab === 'COSTS',
+      onClick: () => openTransportTab('COSTS')
+    }
   ];
 
   return (
@@ -615,19 +736,31 @@ export default function AccountingApp() {
 
       {/* LEFT SIDEBAR */}
       <aside className="w-full md:w-64 bg-white border-b md:border-b-0 md:border-r border-slate-200 p-4 flex flex-col justify-between shrink-0">
-        <div className="space-y-6">
+        <div className="space-y-5">
           <div className="flex items-center gap-3 px-2">
             {org?.logo_url ? (
               // eslint-disable-next-line @next/next/no-img-element -- logo URL comes from Supabase Storage or legacy data: URL
               <img src={org.logo_url} alt="Logo" className="w-9 h-9 rounded-lg object-contain border border-slate-200" />
             ) : (
-              <div className="p-2 bg-blue-600 rounded-lg text-white"><Building2 className="w-5 h-5" /></div>
+              <div className={`p-2 rounded-lg text-white ${hasTransportAddon ? 'bg-slate-900' : 'bg-blue-600'}`}>
+                {hasTransportAddon ? <Truck className="w-5 h-5" /> : <Building2 className="w-5 h-5" />}
+              </div>
             )}
             <div className="min-w-0">
               <div className="font-bold text-sm text-slate-900 truncate">{org?.name}</div>
               <div className="text-xs text-slate-500 truncate">{sub?.plan || 'STARTER'} &middot; {org?.industry}</div>
             </div>
           </div>
+
+          {enabledModules.length > 0 && (
+            <div className="px-2 flex flex-wrap gap-1">
+              {enabledModules.map(mod => (
+                <span key={mod} className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                  {mod}
+                </span>
+              ))}
+            </div>
+          )}
 
           {/* Business Switcher */}
           <div className="space-y-1.5">
@@ -639,6 +772,7 @@ export default function AccountingApp() {
                   if (!found) return;
                   setDocs([]);
                   setExpenses([]);
+                  setSection('OVERVIEW');
                   setOrg(found);
                 }}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-700"
@@ -655,19 +789,47 @@ export default function AccountingApp() {
             )}
           </div>
 
-          <nav className="flex md:flex-col gap-1 overflow-x-auto">
-            {navItems.map(item => (
-              <button
-                key={item.id}
-                onClick={() => setSection(item.id)}
-                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition ${
-                  section === item.id ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                <item.icon className="w-4 h-4" /> {item.label}
-              </button>
-            ))}
-          </nav>
+          {hasTransportAddon && (
+            <div className="space-y-1">
+              <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Transport Operations
+              </div>
+              <nav className="flex md:flex-col gap-1 overflow-x-auto">
+                {transportNavItems.map(item => (
+                  <button
+                    key={item.label}
+                    onClick={item.onClick}
+                    className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition ${
+                      item.active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <item.icon className="w-4 h-4" /> {item.label}
+                  </button>
+                ))}
+              </nav>
+            </div>
+          )}
+
+          <div className="space-y-1">
+            {hasTransportAddon && (
+              <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Finance &amp; Accounting
+              </div>
+            )}
+            <nav className="flex md:flex-col gap-1 overflow-x-auto">
+              {accountingNavItems.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => setSection(item.id)}
+                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition ${
+                    section === item.id ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  <item.icon className="w-4 h-4" /> {item.label}
+                </button>
+              ))}
+            </nav>
+          </div>
         </div>
 
         <div className="hidden md:block pt-4 border-t border-slate-200 space-y-2">
@@ -703,7 +865,7 @@ export default function AccountingApp() {
         {/* Top Bar */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <h2 className="text-xl font-bold text-slate-900">
-            {section === 'OVERVIEW' && 'Business Overview'}
+            {section === 'OVERVIEW' && (hasTransportAddon ? 'Transport & Fleet Command' : 'Business Overview')}
             {section === 'SALES' && 'Sales, Quotes, Invoices & Receipts'}
             {section === 'EXPENSES' && 'Purchases & Operating Expenses'}
             {section === 'CUSTOMERS' && 'Customers Directory'}
@@ -715,12 +877,32 @@ export default function AccountingApp() {
             {section === 'SETTINGS' && 'Company & PDF Template Settings'}
           </h2>
           <div className="flex flex-wrap gap-2">
+            {hasTransportAddon && (
+              <>
+                <button
+                  disabled={subscriptionLocked}
+                  onClick={() => openTransportTab('TRIPS')}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <MapPin className="w-4 h-4" /> Dispatch Trip
+                </button>
+                <button
+                  disabled={subscriptionLocked}
+                  onClick={() => openTransportTab('COSTS')}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Fuel className="w-4 h-4" /> Log Fuel / Cost
+                </button>
+              </>
+            )}
             <button disabled={subscriptionLocked} onClick={() => setShowDocModal(true)} className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
               <PlusCircle className="w-4 h-4" /> New Quote / Invoice
             </button>
-            <button disabled={subscriptionLocked} onClick={() => setShowExpenseModal(true)} className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
-              <ReceiptText className="w-4 h-4" /> Log Expense
-            </button>
+            {!hasTransportAddon && (
+              <button disabled={subscriptionLocked} onClick={() => setShowExpenseModal(true)} className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
+                <ReceiptText className="w-4 h-4" /> Log Expense
+              </button>
+            )}
             <button onClick={exportTaxCSV} className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold">
               <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Export CSV
             </button>
@@ -728,7 +910,7 @@ export default function AccountingApp() {
         </div>
 
         {/* Search & Date Filter */}
-        {(section === 'OVERVIEW' || section === 'SALES' || section === 'EXPENSES') && (
+        {((!hasTransportAddon && section === 'OVERVIEW') || section === 'SALES' || section === 'EXPENSES') && (
           <div className="bg-white border border-slate-200 p-3 rounded-2xl flex flex-col md:flex-row gap-3">
             <div className="relative flex-1">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -756,8 +938,147 @@ export default function AccountingApp() {
           </div>
         )}
 
-        {/* OVERVIEW KPIs */}
-        {section === 'OVERVIEW' && (
+        {/* TRANSPORT COMMAND OVERVIEW (When TRANSPORT module is active) */}
+        {section === 'OVERVIEW' && hasTransportAddon && (
+          <div className="space-y-6">
+            {/* Transport KPI Strip */}
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+              <div className="bg-white border border-slate-200 p-4 rounded-2xl">
+                <div className="text-xs font-semibold text-slate-500 uppercase">Fleet Readiness</div>
+                <div className="text-2xl font-bold text-slate-900 mt-1">{activeVehiclesCount} / {vehicles.length}</div>
+                <div className="text-xs text-slate-400 mt-1">
+                  {maintenanceVehiclesCount > 0 ? `${maintenanceVehiclesCount} in maintenance` : `${activeDriversCount} active drivers`}
+                </div>
+              </div>
+              <div className="bg-white border border-slate-200 p-4 rounded-2xl">
+                <div className="text-xs font-semibold text-slate-500 uppercase">Upcoming / Active Trips</div>
+                <div className="text-2xl font-bold text-blue-600 mt-1">{upcomingTrips.length}</div>
+                <div className="text-xs text-slate-400 mt-1">{activeTripsList.length} total non-cancelled</div>
+              </div>
+              <div className="bg-white border border-slate-200 p-4 rounded-2xl">
+                <div className="text-xs font-semibold text-slate-500 uppercase">Trip Fares</div>
+                <div className="text-xl font-bold text-emerald-600 mt-1">{currency} {totalTripFares.toLocaleString()}</div>
+                <div className="text-xs text-slate-400 mt-1">Cash collected: {currency} {cashCollected.toLocaleString()}</div>
+              </div>
+              <div className="bg-white border border-slate-200 p-4 rounded-2xl">
+                <div className="text-xs font-semibold text-slate-500 uppercase">Fuel &amp; Fleet Costs</div>
+                <div className="text-xl font-bold text-rose-600 mt-1">{currency} {totalFleetCosts.toLocaleString()}</div>
+                <div className="text-xs text-slate-400 mt-1">Receivables: {currency} {receivables.toLocaleString()}</div>
+              </div>
+              <div className="col-span-2 lg:col-span-1 bg-slate-900 text-white p-4 rounded-2xl">
+                <div className="text-xs font-semibold text-slate-300 uppercase">Net Fleet Margin</div>
+                <div className={`text-xl font-bold mt-1 ${netFleetMargin >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {currency} {netFleetMargin.toLocaleString()}
+                </div>
+                <div className="text-xs text-slate-400 mt-1">Fares &minus; Direct Fleet Costs</div>
+              </div>
+            </div>
+
+            {/* License Compliance Alerts */}
+            {driverLicenseAlerts.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-xs text-amber-900 font-semibold">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    Driver compliance alert: {driverLicenseAlerts.map(d => `${d.full_name} (exp ${d.license_expiry})`).join(', ')}
+                  </span>
+                </div>
+                <button
+                  onClick={() => openTransportTab('DRIVERS')}
+                  className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-semibold"
+                >
+                  Review Drivers
+                </button>
+              </div>
+            )}
+
+            {/* Active Dispatch Queue + Vehicle Profitability */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-slate-900">Active &amp; Upcoming Dispatch ({upcomingTrips.length})</h3>
+                  <button onClick={() => openTransportTab('TRIPS')} className="text-xs font-semibold text-blue-600 hover:underline">
+                    Manage Trips &rarr;
+                  </button>
+                </div>
+                <div className="divide-y divide-slate-100 text-xs">
+                  {upcomingTrips.slice(0, 6).map(t => {
+                    const v = t.vehicle_id ? vehicleById.get(t.vehicle_id) : undefined;
+                    const d = t.driver_id ? driverById.get(t.driver_id) : undefined;
+                    return (
+                      <div key={t.id} className="py-2.5 flex justify-between items-center gap-2">
+                        <div>
+                          <div className="font-semibold text-slate-900">
+                            {t.client_name} <span className="font-mono text-slate-400 font-normal">({t.trip_code})</span>
+                          </div>
+                          <div className="text-slate-500">
+                            {t.trip_date} &middot; {t.origin} &rarr; {t.destination}
+                          </div>
+                          <div className="text-slate-400">
+                            {v ? v.registration_no : 'Unassigned'} &middot; {d ? d.full_name : 'No driver'}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="font-bold text-slate-900">{currency} {Number(t.agreed_fare).toLocaleString()}</div>
+                          <span className="inline-block mt-0.5 px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold text-[10px]">
+                            {t.status}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {upcomingTrips.length === 0 && (
+                    <p className="py-4 text-slate-400">No upcoming or in-progress trips. Click Dispatch Trip to schedule one.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-slate-900">Profitability by Vehicle</h3>
+                  <button onClick={() => openTransportTab('FLEET')} className="text-xs font-semibold text-blue-600 hover:underline">
+                    Open Fleet &rarr;
+                  </button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="uppercase text-slate-400 border-b border-slate-200">
+                      <tr>
+                        <th className="py-2">Vehicle</th>
+                        <th className="py-2">Trips</th>
+                        <th className="py-2">Revenue</th>
+                        <th className="py-2">Costs</th>
+                        <th className="py-2">Margin</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {vehicleBreakdown.map(row => (
+                        <tr key={row.vehicle.id}>
+                          <td className="py-2 font-semibold text-slate-900">
+                            <span className="font-mono">{row.vehicle.registration_no}</span>
+                            <div className="text-[11px] font-normal text-slate-400">{row.vehicle.make_model}</div>
+                          </td>
+                          <td className="py-2">{row.tripCount}</td>
+                          <td className="py-2 text-blue-600 font-semibold">{currency} {row.rev.toLocaleString()}</td>
+                          <td className="py-2 text-rose-600">{currency} {row.cost.toLocaleString()}</td>
+                          <td className={`py-2 font-bold ${row.margin >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            {currency} {row.margin.toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                      {vehicleBreakdown.length === 0 && (
+                        <tr><td colSpan={5} className="py-4 text-slate-400">Add vehicles in Fleet Vehicles to track per-unit margin.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* CORE ACCOUNTING OVERVIEW KPIs (When no specialist module overrides overview) */}
+        {section === 'OVERVIEW' && !hasTransportAddon && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white border border-slate-200 p-5 rounded-2xl">
               <div className="text-xs font-semibold text-slate-500 uppercase">Cash Collected (Receipts)</div>
@@ -779,13 +1100,13 @@ export default function AccountingApp() {
               <div className={`text-2xl font-bold mt-1 ${netCashPosition >= 0 ? 'text-blue-600' : 'text-rose-600'}`}>
                 {currency} {netCashPosition.toLocaleString()}
               </div>
-              <div className="text-xs text-slate-400 mt-1">Cash Collected − Expenses</div>
+              <div className="text-xs text-slate-400 mt-1">Cash Collected &minus; Expenses</div>
             </div>
           </div>
         )}
 
         {/* SALES & DOCUMENTS TABLE */}
-        {(section === 'OVERVIEW' || section === 'SALES') && (
+        {((!hasTransportAddon && section === 'OVERVIEW') || section === 'SALES') && (
           <SalesDocumentsTable
             docs={filteredDocs}
             currency={currency}
@@ -810,7 +1131,7 @@ export default function AccountingApp() {
         )}
 
         {/* EXPENSES TABLE */}
-        {(section === 'OVERVIEW' || section === 'EXPENSES') && (
+        {((!hasTransportAddon && section === 'OVERVIEW') || section === 'EXPENSES') && (
           <ExpensesTable
             expenses={dateExpenses}
             currency={currency}
@@ -819,7 +1140,7 @@ export default function AccountingApp() {
           />
         )}
 
-        {/* CUSTOMERS & PRODUCTS/SERVICES CATALOGUES (All tiers: Starter+) */}
+        {/* CUSTOMERS & PRODUCTS/SERVICES CATALOGUES */}
         {(section === 'CUSTOMERS' || section === 'CATALOGUE') && org && (
           <CataloguesSection
             mode={section}
@@ -832,7 +1153,7 @@ export default function AccountingApp() {
           />
         )}
 
-        {/* INVENTORY & SUPPLIERS (Growth+ write access) */}
+        {/* INVENTORY & SUPPLIERS */}
         {section === 'INVENTORY' && org && (
           <InventorySection
             orgId={org.id}
@@ -848,7 +1169,13 @@ export default function AccountingApp() {
         )}
 
         {hasTransportAddon && section === 'TRANSPORT' && org && (
-          <TransportSection orgId={org.id} currency={currency} isReadOnly={subscriptionLocked} />
+          <TransportSection
+            orgId={org.id}
+            currency={currency}
+            isReadOnly={subscriptionLocked}
+            activeTab={transportTab}
+            onTabChange={setTransportTab}
+          />
         )}
 
         {/* BUSINESS INTELLIGENCE (Intelligence+ only) */}
