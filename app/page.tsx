@@ -744,7 +744,15 @@ export default function AccountingApp() {
       {/* LEFT SIDEBAR (Collapsible on Mobile) */}
       <aside className="w-full md:w-64 bg-white border-b md:border-b-0 md:border-r border-slate-200 p-4 flex flex-col justify-between shrink-0">
         <div className="space-y-4">
-          <div className="flex items-center justify-between gap-2 px-1">
+          <div className="flex items-center gap-2.5 px-1">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(o => !o)}
+              aria-label="Toggle navigation"
+              className="md:hidden p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 shrink-0"
+            >
+              {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
             <div className="flex items-center gap-3 min-w-0">
               {org?.logo_url ? (
                 // eslint-disable-next-line @next/next/no-img-element -- logo URL comes from Supabase Storage or legacy data: URL
@@ -759,14 +767,6 @@ export default function AccountingApp() {
                 <div className="text-xs text-slate-500 truncate">{sub?.plan || 'STARTER'} &middot; {org?.industry}</div>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => setMobileNavOpen(o => !o)}
-              aria-label="Toggle navigation"
-              className="md:hidden p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100"
-            >
-              {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
           </div>
 
           <div className={`${mobileNavOpen ? 'block' : 'hidden'} md:block space-y-4`}>
