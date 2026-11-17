@@ -110,20 +110,43 @@ export default function TeamManagementSection({
 
     setIsBusy(true);
     try {
-      const { error } = await supabase.from('organization_invites').insert({
-        org_id: orgId,
-        email: normalizedEmail,
-        role: inviteRole
+      const {
+        data: { session }
+      } = await supabase.auth.getSession();
+
+      if (!session?.access_token) {
+        setErrorMsg('Session expired. Please sign in again.');
+        return;
+      }
+
+      const res = await fetch('/api/team/invite', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          orgId,
+          email: normalizedEmail,
+          role: inviteRole
+        })
       });
 
-      if (error) {
-        setErrorMsg(error.message);
+      const json = (await res.json()) as {
+        error?: string;
+        emailSent?: boolean;
+      };
+
+      if (!res.ok) {
+        setErrorMsg(json.error || 'Failed to send invite.');
         return;
       }
 
       setInviteEmail('');
       setStatusMsg(
-        `Invite queued for ${normalizedEmail}. They will automatically join when they sign in or sign up with that email.`
+        json.emailSent
+          ? `Invite email sent to ${normalizedEmail} to set their password and join.`
+          : `Invite saved for ${normalizedEmail}. They will join automatically when they sign in.`
       );
       await loadTeam();
     } finally {
