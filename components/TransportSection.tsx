@@ -119,12 +119,14 @@ export default function TransportSection({
   const [licenseNo, setLicenseNo] = useState('');
   const [licenseExpiry, setLicenseExpiry] = useState('');
 
-  // Trip form
+  // Trip form (matches shared public.customers schema)
   const [tripDate, setTripDate] = useState(todayLocal);
   const [selectedCustomerId, setSelectedCustomerId] = useState('NEW');
   const [tripClient, setTripClient] = useState('');
+  const [tripClientCompany, setTripClientCompany] = useState('');
   const [tripClientPhone, setTripClientPhone] = useState('');
   const [tripClientEmail, setTripClientEmail] = useState('');
+  const [tripClientKraPin, setTripClientKraPin] = useState('');
   const [tripOrigin, setTripOrigin] = useState('');
   const [tripDest, setTripDest] = useState('');
   const [tripVehicleId, setTripVehicleId] = useState('');
@@ -281,15 +283,19 @@ export default function TransportSection({
     setSelectedCustomerId(customerId);
     if (customerId === 'NEW') {
       setTripClient('');
+      setTripClientCompany('');
       setTripClientPhone('');
       setTripClientEmail('');
+      setTripClientKraPin('');
       return;
     }
     const found = customerMap.get(customerId);
     if (found) {
       setTripClient(found.name);
+      setTripClientCompany(found.company_name ?? '');
       setTripClientPhone(found.phone ?? '');
       setTripClientEmail(found.email ?? '');
+      setTripClientKraPin(found.kra_pin ?? '');
     }
   };
 
@@ -299,7 +305,7 @@ export default function TransportSection({
 
     const cleanName = tripClient.trim();
     if (!cleanName) {
-      setErrorMsg('Enter or select a client name.');
+      setErrorMsg('Enter or select a customer.');
       return;
     }
 
@@ -311,12 +317,16 @@ export default function TransportSection({
       } else {
         const { data: createdCust, error: custErr } = await supabase
           .from('customers')
-          .insert({
-            org_id: orgId,
-            name: cleanName,
-            phone: tripClientPhone.trim() || null,
-            email: tripClientEmail.trim() || null
-          })
+          .insert([
+            {
+              org_id: orgId,
+              name: cleanName,
+              company_name: tripClientCompany.trim() || null,
+              phone: tripClientPhone.trim() || null,
+              email: tripClientEmail.trim() || null,
+              kra_pin: tripClientKraPin.trim() || null
+            }
+          ])
           .select('id')
           .single();
         if (custErr) {
@@ -346,8 +356,10 @@ export default function TransportSection({
     }
     setSelectedCustomerId('NEW');
     setTripClient('');
+    setTripClientCompany('');
     setTripClientPhone('');
     setTripClientEmail('');
+    setTripClientKraPin('');
     setTripOrigin('');
     setTripDest('');
     setTripFare('');
@@ -536,9 +548,11 @@ export default function TransportSection({
                   onChange={e => handleSelectCustomer(e.target.value)}
                   className="border border-slate-300 rounded-xl p-2 text-xs bg-white font-medium"
                 >
-                  <option value="NEW">+ New Client (Save to Customers)</option>
+                  <option value="NEW">+ New Customer (Save to Customers)</option>
                   {customers.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
+                    <option key={c.id} value={c.id}>
+                      {c.company_name ? `${c.name} (${c.company_name})` : c.name}
+                    </option>
                   ))}
                 </select>
                 <input type="text" required placeholder="Origin (e.g. JKIA)" value={tripOrigin} onChange={e => setTripOrigin(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
@@ -546,10 +560,12 @@ export default function TransportSection({
               </div>
 
               {selectedCustomerId === 'NEW' && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 bg-slate-50 border border-slate-200 rounded-xl p-2.5">
-                  <input type="text" required placeholder="New Client / Passenger Name" value={tripClient} onChange={e => setTripClient(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white" />
-                  <input type="text" placeholder="Client Phone (Optional)" value={tripClientPhone} onChange={e => setTripClientPhone(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white" />
-                  <input type="email" placeholder="Client Email (Optional)" value={tripClientEmail} onChange={e => setTripClientEmail(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white" />
+                <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 bg-slate-50 border border-slate-200 rounded-xl p-2.5">
+                  <input type="text" required placeholder="Contact Name" value={tripClient} onChange={e => setTripClient(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white" />
+                  <input type="text" placeholder="Company Name (Optional)" value={tripClientCompany} onChange={e => setTripClientCompany(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white" />
+                  <input type="tel" placeholder="Phone (e.g. 0712...)" value={tripClientPhone} onChange={e => setTripClientPhone(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white" />
+                  <input type="email" placeholder="Email" value={tripClientEmail} onChange={e => setTripClientEmail(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white" />
+                  <input type="text" placeholder="KRA PIN (Optional)" value={tripClientKraPin} onChange={e => setTripClientKraPin(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white" />
                 </div>
               )}
 
