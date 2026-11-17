@@ -27,6 +27,8 @@ import DocumentModal from '@/components/DocumentModal';
 import SettingsForm from '@/components/SettingsForm';
 import IntelligenceSection from '@/components/IntelligenceSection';
 import InventorySection from '@/components/InventorySection';
+import ReportsSection from '@/components/ReportsSection';
+import TransportSection from '@/components/TransportSection';
 import {
   LayoutDashboard,
   FileText,
@@ -45,6 +47,8 @@ import {
   Users,
   Package,
   PackageCheck,
+  Scale,
+  Truck,
   BarChart3
 } from 'lucide-react';
 
@@ -55,6 +59,8 @@ type Section =
   | 'CUSTOMERS'
   | 'CATALOGUE'
   | 'INVENTORY'
+  | 'REPORTS'
+  | 'TRANSPORT'
   | 'INTELLIGENCE'
   | 'SETTINGS';
 
@@ -330,6 +336,7 @@ export default function AccountingApp() {
   );
   const isGrowthPlus = Boolean(sub && ['GROWTH', 'INTELLIGENCE', 'ENTERPRISE'].includes(sub.plan));
   const isIntelligencePlus = Boolean(sub && ['INTELLIGENCE', 'ENTERPRISE'].includes(sub.plan));
+  const hasTransportAddon = Boolean(sub?.transport_addon || sub?.enabled_modules?.includes('TRANSPORT'));
 
   const handleDeleteQuote = async (quote: DocumentRecord) => {
     if (!org) return;
@@ -597,6 +604,8 @@ export default function AccountingApp() {
     { id: 'CUSTOMERS', label: 'Customers', icon: Users },
     { id: 'CATALOGUE', label: 'Products & Services', icon: Package },
     { id: 'INVENTORY', label: 'Inventory & Suppliers', icon: PackageCheck },
+    { id: 'REPORTS', label: 'Financial Reports', icon: Scale },
+    ...(hasTransportAddon ? [{ id: 'TRANSPORT' as Section, label: 'Transport & Fleet', icon: Truck }] : []),
     ...(isIntelligencePlus ? [{ id: 'INTELLIGENCE' as Section, label: 'Intelligence', icon: BarChart3 }] : []),
     { id: 'SETTINGS', label: 'Branding & Settings', icon: Settings }
   ];
@@ -700,6 +709,8 @@ export default function AccountingApp() {
             {section === 'CUSTOMERS' && 'Customers Directory'}
             {section === 'CATALOGUE' && 'Products & Services'}
             {section === 'INVENTORY' && 'Inventory, Variants & Suppliers'}
+            {section === 'REPORTS' && 'Financial Statements (GL)'}
+            {section === 'TRANSPORT' && 'Transport & Fleet Operations'}
             {section === 'INTELLIGENCE' && 'Business Intelligence & Reports'}
             {section === 'SETTINGS' && 'Company & PDF Template Settings'}
           </h2>
@@ -830,6 +841,14 @@ export default function AccountingApp() {
             isGrowthPlus={isGrowthPlus}
             isReadOnly={subscriptionLocked}
           />
+        )}
+
+        {section === 'REPORTS' && org && (
+          <ReportsSection orgId={org.id} currency={currency} />
+        )}
+
+        {hasTransportAddon && section === 'TRANSPORT' && org && (
+          <TransportSection orgId={org.id} currency={currency} isReadOnly={subscriptionLocked} />
         )}
 
         {/* BUSINESS INTELLIGENCE (Intelligence+ only) */}

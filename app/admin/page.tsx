@@ -26,6 +26,7 @@ interface Tenant {
   plan: string | null;
   status: string | null;
   transport_addon: boolean | null;
+  enabled_modules: string[] | null;
   current_period_end: string | null;
 }
 
@@ -70,6 +71,14 @@ type AdminTab = 'TENANTS' | 'PRICING' | 'PROMOS' | 'PAYMENTS';
 
 const PLATFORM_ADMIN_EMAIL = 'quentinwg2015@gmail.com';
 const PLANS = ['STARTER', 'ESSENTIAL', 'GROWTH', 'INTELLIGENCE', 'ENTERPRISE'] as const;
+const SPECIALIST_MODULES = [
+  { id: 'TRANSPORT', label: 'Transport' },
+  { id: 'MANUFACTURING', label: 'Manufacturing' },
+  { id: 'WAREHOUSE', label: 'Warehouse' },
+  { id: 'PAYROLL', label: 'Payroll' },
+  { id: 'PROCUREMENT', label: 'Procurement' },
+  { id: 'CRM', label: 'CRM' }
+] as const;
 const STATUSES = ['ACTIVE', 'TRIAL', 'SUSPENDED', 'CANCELLED'] as const;
 
 export default function PlatformAdminPage() {
@@ -270,6 +279,18 @@ export default function PlatformAdminPage() {
       p_plan: newPlan,
       p_status: newStatus,
       p_transport_addon: newTransport
+    });
+    if (error) alert(error.message);
+    else loadAdminData();
+  };
+
+  const handleToggleModule = async (t: Tenant, moduleId: string) => {
+    const current = new Set(t.enabled_modules ?? (t.transport_addon ? ['TRANSPORT'] : []));
+    if (current.has(moduleId)) current.delete(moduleId);
+    else current.add(moduleId);
+    const { error } = await supabase.rpc('platform_set_org_modules', {
+      p_org_id: t.org_id,
+      p_modules: Array.from(current)
     });
     if (error) alert(error.message);
     else loadAdminData();
@@ -493,7 +514,7 @@ export default function PlatformAdminPage() {
                       <th className="py-2.5 px-2">Business</th>
                       <th className="py-2.5 px-2">Plan Tier</th>
                       <th className="py-2.5 px-2">Status / Shutdown</th>
-                      <th className="py-2.5 px-2">Transport Add-on</th>
+                      <th className="py-2.5 px-2">Modules &amp; Add-ons</th>
                       <th className="py-2.5 px-2">Period End &amp; Renew</th>
                     </tr>
                   </thead>
@@ -535,14 +556,25 @@ export default function PlatformAdminPage() {
                           </select>
                         </td>
                         <td className="py-3 px-2">
-                          <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={!!t.transport_addon}
-                              onChange={e => handleUpdateSub(t, t.plan ?? 'ESSENTIAL', t.status ?? 'ACTIVE', e.target.checked)}
-                            />
-                            {t.transport_addon ? 'Enabled' : 'Off'}
-                          </label>
+                          <div className="flex flex-wrap gap-1 max-w-[230px]">
+                            {SPECIALIST_MODULES.map(mod => {
+                              const active = (t.enabled_modules ?? []).includes(mod.id) || (mod.id === 'TRANSPORT' && !!t.transport_addon);
+                              return (
+                                <button
+                                  key={mod.id}
+                                  type="button"
+                                  onClick={() => handleToggleModule(t, mod.id)}
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border transition ${
+                                    active
+                                      ? 'bg-blue-600 text-white border-blue-600'
+                                      : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'
+                                  }`}
+                                >
+                                  {mod.label}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </td>
                         <td className="py-3 px-2 text-xs space-y-1">
                           <div className="text-slate-700 font-mono">{t.current_period_end || '-'}</div>

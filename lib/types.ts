@@ -65,6 +65,7 @@ export interface Subscription {
   status: string;
   current_period_end: string;
   transport_addon?: boolean;
+  enabled_modules?: string[];
 }
 
 export interface Customer {
