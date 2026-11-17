@@ -742,18 +742,45 @@ export default function AccountingApp() {
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col md:flex-row font-sans">
 
       {/* LEFT SIDEBAR (Collapsible on Mobile) */}
-      <aside className="w-full md:w-64 bg-white border-b md:border-b-0 md:border-r border-slate-200 p-4 flex flex-col justify-between shrink-0">
+      <aside className="w-full md:w-64 bg-white border-b md:border-b-0 md:border-r border-slate-200 p-3 md:p-4 flex flex-col justify-between shrink-0">
         <div className="space-y-4">
-          <div className="flex items-center gap-2.5 px-1">
-            <button
-              type="button"
-              onClick={() => setMobileNavOpen(o => !o)}
-              aria-label="Toggle navigation"
-              className="md:hidden p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 shrink-0"
-            >
-              {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
-            <div className="flex items-center gap-3 min-w-0">
+          {/* Mobile Slim Top Bar */}
+          <div className="flex md:hidden items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <button
+                type="button"
+                onClick={() => setMobileNavOpen(o => !o)}
+                aria-label="Toggle navigation"
+                className="p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 shrink-0"
+              >
+                {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              </button>
+              <span className="font-bold text-sm text-slate-900 truncate">{org?.name}</span>
+            </div>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 shrink-0">
+              {sub?.plan || 'STARTER'}
+            </span>
+          </div>
+
+          {/* Desktop Sidebar Header */}
+          <div className="hidden md:flex items-center gap-3 px-2">
+            {org?.logo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element -- logo URL comes from Supabase Storage or legacy data: URL
+              <img src={org.logo_url} alt="Logo" className="w-9 h-9 rounded-lg object-contain border border-slate-200 shrink-0" />
+            ) : (
+              <div className={`p-2 rounded-lg text-white shrink-0 ${hasTransportAddon ? 'bg-slate-900' : 'bg-blue-600'}`}>
+                {hasTransportAddon ? <Truck className="w-5 h-5" /> : <Building2 className="w-5 h-5" />}
+              </div>
+            )}
+            <div className="min-w-0">
+              <div className="font-bold text-sm text-slate-900 truncate">{org?.name}</div>
+              <div className="text-xs text-slate-500 truncate">{sub?.plan || 'STARTER'} &middot; {org?.industry}</div>
+            </div>
+          </div>
+
+          <div className={`${mobileNavOpen ? 'block' : 'hidden'} md:block space-y-4 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100`}>
+            {/* Mobile Drawer Business Card */}
+            <div className="flex md:hidden items-center gap-3 px-2 py-2 bg-slate-50 rounded-xl border border-slate-200">
               {org?.logo_url ? (
                 // eslint-disable-next-line @next/next/no-img-element -- logo URL comes from Supabase Storage or legacy data: URL
                 <img src={org.logo_url} alt="Logo" className="w-9 h-9 rounded-lg object-contain border border-slate-200 shrink-0" />
@@ -767,9 +794,6 @@ export default function AccountingApp() {
                 <div className="text-xs text-slate-500 truncate">{sub?.plan || 'STARTER'} &middot; {org?.industry}</div>
               </div>
             </div>
-          </div>
-
-          <div className={`${mobileNavOpen ? 'block' : 'hidden'} md:block space-y-4`}>
             {enabledModules.length > 0 && (
               <div className="px-1 flex flex-wrap gap-1">
                 {enabledModules.map(mod => (
@@ -1348,17 +1372,93 @@ export default function AccountingApp() {
 
       {/* PDF PREVIEW MODAL */}
       {previewPdf && (
-        <div className="fixed inset-0 bg-black/75 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center p-3 sm:p-4 z-50">
           <div className="bg-white rounded-2xl max-w-4xl w-full h-[88vh] flex flex-col overflow-hidden shadow-2xl">
-            <div className="px-5 py-3 border-b border-slate-200 flex justify-between items-center">
-              <span className="font-mono text-sm font-bold">{previewPdf.item.doc_number}.pdf</span>
-              <div className="flex items-center gap-2">
-                <button onClick={() => handleDownloadPDF(previewPdf.item)} className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1"><Download className="w-4 h-4" /> Download</button>
-                <button onClick={() => handleSharePDF(previewPdf.item)} className="px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1"><Share2 className="w-4 h-4" /> Share PDF</button>
+            <div className="px-4 sm:px-5 py-3 border-b border-slate-200 flex flex-wrap justify-between items-center gap-2">
+              <span className="font-mono text-xs sm:text-sm font-bold truncate">{previewPdf.item.doc_number}.pdf</span>
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <button onClick={() => handleDownloadPDF(previewPdf.item)} className="px-2.5 sm:px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-semibold flex items-center gap-1">
+                  <Download className="w-3.5 h-3.5" /> Download
+                </button>
+                <button onClick={() => handleSharePDF(previewPdf.item)} className="px-2.5 sm:px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-semibold flex items-center gap-1">
+                  <Share2 className="w-3.5 h-3.5" /> Share
+                </button>
                 <button onClick={() => setPreviewPdf(null)} className="p-1 text-slate-400 hover:text-slate-700"><X className="w-5 h-5" /></button>
               </div>
             </div>
-            <iframe src={previewPdf.url} title="PDF Preview" className="w-full flex-1 bg-slate-100" />
+
+            {/* Desktop Inline PDF Viewer */}
+            <iframe src={previewPdf.url} title="PDF Preview" className="hidden md:block w-full flex-1 bg-slate-100" />
+
+            {/* Mobile Document Preview (Android/iOS browsers block inline blob PDFs in iframes) */}
+            <div className="md:hidden flex-1 overflow-y-auto bg-slate-50 p-4 space-y-4">
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3 text-xs">
+                <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-3">
+                  <div>
+                    <div className="font-bold text-sm text-slate-900">{org?.name}</div>
+                    <div className="text-slate-500 mt-0.5">{previewPdf.item.doc_type} &middot; {previewPdf.item.issue_date}</div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded bg-slate-100 font-bold text-slate-700">{previewPdf.item.status}</span>
+                </div>
+
+                <div>
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Client</div>
+                  <div className="font-semibold text-slate-900 mt-0.5">{previewPdf.item.customer_name}</div>
+                  {previewPdf.item.customer_phone && <div className="text-slate-500">{previewPdf.item.customer_phone}</div>}
+                  {previewPdf.item.customer_email && <div className="text-slate-500">{previewPdf.item.customer_email}</div>}
+                </div>
+
+                <div className="border-t border-slate-100 pt-3 space-y-2">
+                  <div className="text-[10px] uppercase font-bold text-slate-400">Items</div>
+                  {previewPdf.item.document_items && previewPdf.item.document_items.length > 0 ? (
+                    previewPdf.item.document_items.map((li, idx) => (
+                      <div key={li.id ?? idx} className="flex justify-between gap-2">
+                        <span className="text-slate-700">{li.quantity}x {li.description}</span>
+                        <span className="font-semibold shrink-0">{currency} {Number(li.line_total).toLocaleString()}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-slate-700">{previewPdf.item.description || previewPdf.item.doc_type}</span>
+                      <span className="font-semibold shrink-0">{currency} {Number(previewPdf.item.amount).toLocaleString()}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t border-slate-200 pt-3 space-y-1">
+                  <div className="flex justify-between font-bold text-sm text-slate-900">
+                    <span>Total</span>
+                    <span>{currency} {Number(previewPdf.item.amount).toLocaleString()}</span>
+                  </div>
+                  {previewPdf.item.doc_type === 'INVOICE' && (
+                    <>
+                      <div className="flex justify-between text-emerald-600">
+                        <span>Paid</span>
+                        <span>{currency} {Number(previewPdf.item.amount_paid || 0).toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between font-semibold text-amber-600">
+                        <span>Balance</span>
+                        <span>{currency} {invoiceBalance(previewPdf.item).toLocaleString()}</span>
+                      </div>
+                    </>
+                  )}
+                  {previewPdf.item.payment_ref && (
+                    <div className="text-slate-500 pt-1">
+                      Ref: {previewPdf.item.payment_method} ({previewPdf.item.payment_ref})
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <a
+                href={previewPdf.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full py-2.5 text-center bg-slate-900 text-white rounded-xl text-xs font-semibold"
+              >
+                Open Raw PDF in Viewer
+              </a>
+            </div>
           </div>
         </div>
       )}
