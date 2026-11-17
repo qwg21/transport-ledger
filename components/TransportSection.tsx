@@ -384,7 +384,6 @@ export default function TransportSection({
     try {
       const existingQuote = trip.quote_id ? docMap.get(trip.quote_id) : undefined;
 
-      // If this quote was already converted in Sales & Invoices, link the existing invoice instead of creating a duplicate
       if (docType === 'INVOICE' && existingQuote) {
         const existingInv = docs.find(
           d => d.doc_type === 'INVOICE' && d.chain_code === existingQuote.chain_code && d.status !== 'VOID'
@@ -490,36 +489,156 @@ export default function TransportSection({
     loadData();
   };
 
+  const renderTripBilling = (t: Trip) => {
+    const quote = t.quote_id ? docMap.get(t.quote_id) : undefined;
+    const invoice =
+      (t.invoice_id ? docMap.get(t.invoice_id) : undefined) ??
+      (quote
+        ? docs.find(doc => doc.doc_type === 'INVOICE' && doc.chain_code === quote.chain_code && doc.status !== 'VOID')
+        : undefined);
+    const busy = billingTripId === t.id;
+
+    if (invoice) {
+      return (
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 font-mono font-semibold text-slate-800">
+              <FileText className="w-3 h-3 text-blue-600" />
+              {invoice.doc_number}
+            </span>
+            <span
+              className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                invoice.status === 'PAID'
+                  ? 'bg-emerald-50 text-emerald-700'
+                  : invoice.status === 'PARTIAL'
+                  ? 'bg-amber-50 text-amber-700'
+                  : 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              {invoice.status}
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {onPreviewPdf && (
+              <button type="button" onClick={() => onPreviewPdf(invoice)} title="Preview PDF" className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg">
+                <Eye className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {onDownloadPdf && (
+              <button type="button" onClick={() => onDownloadPdf(invoice)} title="Download PDF" className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg">
+                <Download className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {onSharePdf && (
+              <button type="button" onClick={() => onSharePdf(invoice)} title="Share PDF" className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg">
+                <Share2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {!isReadOnly && (invoice.status === 'UNPAID' || invoice.status === 'PARTIAL') && onOpenReceipt && (
+              <button
+                type="button"
+                onClick={() => onOpenReceipt(invoice)}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-semibold"
+              >
+                <Receipt className="w-3 h-3" /> Receipt
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (quote) {
+      return (
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="font-mono text-slate-700 font-semibold">{quote.doc_number}</span>
+            {onPreviewPdf && (
+              <button type="button" onClick={() => onPreviewPdf(quote)} title="Preview PDF" className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg">
+                <Eye className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {onDownloadPdf && (
+              <button type="button" onClick={() => onDownloadPdf(quote)} title="Download PDF" className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg">
+                <Download className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {onSharePdf && (
+              <button type="button" onClick={() => onSharePdf(quote)} title="Share PDF" className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg">
+                <Share2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          {!isReadOnly && t.status !== 'CANCELLED' && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => handleCreateTripDocument(t, 'INVOICE')}
+              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-semibold disabled:opacity-50"
+            >
+              {busy ? 'Working...' : 'Convert to Invoice'}
+            </button>
+          )}
+        </div>
+      );
+    }
+
+    if (!isReadOnly && t.status !== 'CANCELLED') {
+      return (
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => handleCreateTripDocument(t, 'QUOTE')}
+            className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-semibold disabled:opacity-50"
+          >
+            + Quote
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => handleCreateTripDocument(t, 'INVOICE')}
+            className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-semibold disabled:opacity-50"
+          >
+            {busy ? 'Working...' : '+ Invoice'}
+          </button>
+        </div>
+      );
+    }
+
+    return <span className="text-slate-400">-</span>;
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* KPI Strip */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div className="bg-white border border-slate-200 rounded-2xl p-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-4">
           <p className="text-xs text-slate-500">Fleet Vehicles</p>
-          <p className="text-2xl font-bold text-slate-900 mt-1">{kpis.vehicles}</p>
+          <p className="text-xl sm:text-2xl font-bold text-slate-900 mt-1">{kpis.vehicles}</p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-2xl p-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-4">
           <p className="text-xs text-slate-500">Active Drivers</p>
-          <p className="text-2xl font-bold text-slate-900 mt-1">{kpis.drivers}</p>
+          <p className="text-xl sm:text-2xl font-bold text-slate-900 mt-1">{kpis.drivers}</p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-2xl p-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-4">
           <p className="text-xs text-slate-500">Trips ({kpis.trips})</p>
-          <p className="text-lg font-bold text-blue-600 mt-1">{currency} {kpis.totalFares.toLocaleString()}</p>
+          <p className="text-base sm:text-lg font-bold text-blue-600 mt-1">{currency} {kpis.totalFares.toLocaleString()}</p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-2xl p-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-3.5 sm:p-4">
           <p className="text-xs text-slate-500">Fuel &amp; Fleet Costs</p>
-          <p className="text-lg font-bold text-rose-600 mt-1">{currency} {kpis.totalCosts.toLocaleString()}</p>
+          <p className="text-base sm:text-lg font-bold text-rose-600 mt-1">{currency} {kpis.totalCosts.toLocaleString()}</p>
         </div>
-        <div className="col-span-2 md:col-span-1 bg-slate-900 text-white rounded-2xl p-4">
+        <div className="col-span-2 md:col-span-1 bg-slate-900 text-white rounded-2xl p-3.5 sm:p-4">
           <p className="text-xs text-slate-300">Net Fleet Margin</p>
-          <p className={`text-lg font-bold mt-1 ${kpis.margin >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+          <p className={`text-base sm:text-lg font-bold mt-1 ${kpis.margin >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
             {currency} {kpis.margin.toLocaleString()}
           </p>
         </div>
       </div>
 
       {/* Sub-navigation */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex gap-2 overflow-x-auto pb-1">
         {(
           [
             { id: 'TRIPS', label: 'Trips & Charters', icon: MapPin },
@@ -533,7 +652,7 @@ export default function TransportSection({
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold ${
+              className={`flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 ${
                 tab === t.id ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
               }`}
             >
@@ -549,16 +668,16 @@ export default function TransportSection({
 
       {/* TRIPS */}
       {tab === 'TRIPS' && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 space-y-4">
           <h3 className="text-sm font-bold text-slate-900">Trips &amp; Charters</h3>
           {!isReadOnly && (
             <form onSubmit={handleAddTrip} className="space-y-2.5">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-                <input type="date" required value={tripDate} onChange={e => setTripDate(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
+                <input type="date" required value={tripDate} onChange={e => setTripDate(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs" />
                 <select
                   value={selectedCustomerId}
                   onChange={e => handleSelectCustomer(e.target.value)}
-                  className="border border-slate-300 rounded-xl p-2 text-xs bg-white font-medium"
+                  className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs bg-white font-medium"
                 >
                   <option value="NEW">+ New Customer (Save to Customers)</option>
                   {customers.map(c => (
@@ -567,35 +686,82 @@ export default function TransportSection({
                     </option>
                   ))}
                 </select>
-                <input type="text" required placeholder="Origin (e.g. JKIA)" value={tripOrigin} onChange={e => setTripOrigin(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
-                <input type="text" required placeholder="Destination (e.g. Westlands)" value={tripDest} onChange={e => setTripDest(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
+                <input type="text" required placeholder="Origin (e.g. JKIA)" value={tripOrigin} onChange={e => setTripOrigin(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs" />
+                <input type="text" required placeholder="Destination (e.g. Westlands)" value={tripDest} onChange={e => setTripDest(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs" />
               </div>
 
               {selectedCustomerId === 'NEW' && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 bg-slate-50 border border-slate-200 rounded-xl p-2.5">
-                  <input type="text" required placeholder="Contact Name" value={tripClient} onChange={e => setTripClient(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white" />
-                  <input type="text" placeholder="Company Name (Optional)" value={tripClientCompany} onChange={e => setTripClientCompany(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white" />
-                  <input type="tel" placeholder="Phone (e.g. 0712...)" value={tripClientPhone} onChange={e => setTripClientPhone(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white" />
-                  <input type="email" placeholder="Email" value={tripClientEmail} onChange={e => setTripClientEmail(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white" />
-                  <input type="text" placeholder="KRA PIN (Optional)" value={tripClientKraPin} onChange={e => setTripClientKraPin(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white" />
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 bg-slate-50 border border-slate-200 rounded-xl p-2.5">
+                  <input type="text" required placeholder="Contact Name" value={tripClient} onChange={e => setTripClient(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs bg-white" />
+                  <input type="text" placeholder="Company Name (Optional)" value={tripClientCompany} onChange={e => setTripClientCompany(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs bg-white" />
+                  <input type="tel" placeholder="Phone (e.g. 0712...)" value={tripClientPhone} onChange={e => setTripClientPhone(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs bg-white" />
+                  <input type="email" placeholder="Email" value={tripClientEmail} onChange={e => setTripClientEmail(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs bg-white" />
+                  <input type="text" placeholder="KRA PIN (Optional)" value={tripClientKraPin} onChange={e => setTripClientKraPin(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs bg-white" />
                 </div>
               )}
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-                <select value={tripVehicleId} onChange={e => setTripVehicleId(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
+                <select value={tripVehicleId} onChange={e => setTripVehicleId(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs bg-white">
                   <option value="">Select Vehicle (Optional)</option>
                   {vehicles.map(v => <option key={v.id} value={v.id}>{v.registration_no} ({v.make_model})</option>)}
                 </select>
-                <select value={tripDriverId} onChange={e => setTripDriverId(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white">
+                <select value={tripDriverId} onChange={e => setTripDriverId(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs bg-white">
                   <option value="">Select Driver (Optional)</option>
                   {drivers.map(d => <option key={d.id} value={d.id}>{d.full_name}</option>)}
                 </select>
-                <input type="number" required min="0" step="0.01" placeholder={`Agreed Fare (${currency})`} value={tripFare} onChange={e => setTripFare(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
-                <button type="submit" className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold">Schedule Trip</button>
+                <input type="number" required min="0" step="0.01" placeholder={`Agreed Fare (${currency})`} value={tripFare} onChange={e => setTripFare(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs" />
+                <button type="submit" className="w-full px-3 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm sm:text-xs font-semibold">Schedule Trip</button>
               </div>
             </form>
           )}
-          <div className="overflow-x-auto">
+
+          {/* Mobile Trip Cards */}
+          <div className="md:hidden space-y-3">
+            {trips.map(t => {
+              const v = t.vehicle_id ? vehicleMap.get(t.vehicle_id) : undefined;
+              const d = t.driver_id ? driverMap.get(t.driver_id) : undefined;
+              const tripCost = costByTrip.get(t.id) || 0;
+              return (
+                <div key={t.id} className="border border-slate-200 rounded-xl p-3.5 space-y-2.5 text-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="font-mono font-bold text-slate-900">{t.trip_code}</div>
+                      <div className="text-slate-400">{t.trip_date}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold text-slate-900">{currency} {Number(t.agreed_fare).toLocaleString()}</div>
+                      <div className="text-rose-600">Cost: {currency} {tripCost.toLocaleString()}</div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-slate-800">{t.client_name}</div>
+                    <div className="text-slate-500">{t.origin} &rarr; {t.destination}</div>
+                    <div className="text-slate-400 mt-0.5">
+                      {v ? v.registration_no : 'No vehicle'} &middot; {d ? d.full_name : 'No driver'}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                    <select
+                      disabled={isReadOnly}
+                      value={t.status}
+                      onChange={e => handleTripStatus(t.id, e.target.value as Trip['status'])}
+                      className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white font-semibold"
+                    >
+                      <option value="SCHEDULED">SCHEDULED</option>
+                      <option value="IN_PROGRESS">IN_PROGRESS</option>
+                      <option value="COMPLETED">COMPLETED</option>
+                      <option value="CANCELLED">CANCELLED</option>
+                    </select>
+                    <div>{renderTripBilling(t)}</div>
+                  </div>
+                </div>
+              );
+            })}
+            {trips.length === 0 && <p className="py-4 text-xs text-slate-400">No trips scheduled yet.</p>}
+          </div>
+
+          {/* Desktop Trip Table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="uppercase text-slate-500 border-b border-slate-200">
                 <tr>
@@ -612,14 +778,6 @@ export default function TransportSection({
                   const v = t.vehicle_id ? vehicleMap.get(t.vehicle_id) : undefined;
                   const d = t.driver_id ? driverMap.get(t.driver_id) : undefined;
                   const tripCost = costByTrip.get(t.id) || 0;
-                  const quote = t.quote_id ? docMap.get(t.quote_id) : undefined;
-                  const invoice =
-                    (t.invoice_id ? docMap.get(t.invoice_id) : undefined) ??
-                    (quote
-                      ? docs.find(doc => doc.doc_type === 'INVOICE' && doc.chain_code === quote.chain_code && doc.status !== 'VOID')
-                      : undefined);
-                  const busy = billingTripId === t.id;
-                  const activeDoc = invoice ?? quote;
                   return (
                     <tr key={t.id}>
                       <td className="py-2.5 px-2">
@@ -651,107 +809,7 @@ export default function TransportSection({
                           <option value="CANCELLED">CANCELLED</option>
                         </select>
                       </td>
-                      <td className="py-2.5 px-2">
-                        {invoice ? (
-                          <div className="space-y-1.5">
-                            <div className="flex items-center gap-1.5">
-                              <span className="inline-flex items-center gap-1 font-mono font-semibold text-slate-800">
-                                <FileText className="w-3 h-3 text-blue-600" />
-                                {invoice.doc_number}
-                              </span>
-                              <span
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                  invoice.status === 'PAID'
-                                    ? 'bg-emerald-50 text-emerald-700'
-                                    : invoice.status === 'PARTIAL'
-                                    ? 'bg-amber-50 text-amber-700'
-                                    : 'bg-slate-100 text-slate-700'
-                                }`}
-                              >
-                                {invoice.status}
-                              </span>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-1">
-                              {onPreviewPdf && (
-                                <button type="button" onClick={() => onPreviewPdf(invoice)} title="Preview PDF" className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded">
-                                  <Eye className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                              {onDownloadPdf && (
-                                <button type="button" onClick={() => onDownloadPdf(invoice)} title="Download PDF" className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded">
-                                  <Download className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                              {onSharePdf && (
-                                <button type="button" onClick={() => onSharePdf(invoice)} title="Share PDF" className="p-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded">
-                                  <Share2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                              {!isReadOnly && (invoice.status === 'UNPAID' || invoice.status === 'PARTIAL') && onOpenReceipt && (
-                                <button
-                                  type="button"
-                                  onClick={() => onOpenReceipt(invoice)}
-                                  className="inline-flex items-center gap-1 px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-[11px] font-semibold"
-                                >
-                                  <Receipt className="w-3 h-3" /> Receipt
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        ) : quote ? (
-                          <div className="space-y-1.5">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-mono text-slate-700 font-semibold">{quote.doc_number}</span>
-                              {activeDoc && onPreviewPdf && (
-                                <button type="button" onClick={() => onPreviewPdf(quote)} title="Preview PDF" className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded">
-                                  <Eye className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                              {activeDoc && onDownloadPdf && (
-                                <button type="button" onClick={() => onDownloadPdf(quote)} title="Download PDF" className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded">
-                                  <Download className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                              {activeDoc && onSharePdf && (
-                                <button type="button" onClick={() => onSharePdf(quote)} title="Share PDF" className="p-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded">
-                                  <Share2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </div>
-                            {!isReadOnly && t.status !== 'CANCELLED' && (
-                              <button
-                                type="button"
-                                disabled={busy}
-                                onClick={() => handleCreateTripDocument(t, 'INVOICE')}
-                                className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-semibold disabled:opacity-50"
-                              >
-                                {busy ? 'Working...' : 'Convert to Invoice'}
-                              </button>
-                            )}
-                          </div>
-                        ) : !isReadOnly && t.status !== 'CANCELLED' ? (
-                          <div className="flex flex-wrap gap-1">
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => handleCreateTripDocument(t, 'QUOTE')}
-                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-semibold disabled:opacity-50"
-                            >
-                              + Quote
-                            </button>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => handleCreateTripDocument(t, 'INVOICE')}
-                              className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-semibold disabled:opacity-50"
-                            >
-                              {busy ? 'Working...' : '+ Invoice'}
-                            </button>
-                          </div>
-                        ) : (
-                          <span className="text-slate-400">-</span>
-                        )}
-                      </td>
+                      <td className="py-2.5 px-2">{renderTripBilling(t)}</td>
                     </tr>
                   );
                 })}
@@ -764,13 +822,13 @@ export default function TransportSection({
 
       {/* FLEET */}
       {tab === 'FLEET' && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 space-y-4">
           <h3 className="text-sm font-bold text-slate-900">Fleet Registry &amp; Vehicle Unit Economics</h3>
           {!isReadOnly && (
-            <form onSubmit={handleAddVehicle} className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
-              <input type="text" required placeholder="Reg No (e.g. KDK 123A)" value={regNo} onChange={e => setRegNo(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs uppercase" />
-              <input type="text" required placeholder="Make & Model (e.g. Toyota Noah)" value={makeModel} onChange={e => setMakeModel(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
-              <select value={vehicleType} onChange={e => setVehicleType(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white">
+            <form onSubmit={handleAddVehicle} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5">
+              <input type="text" required placeholder="Reg No (e.g. KDK 123A)" value={regNo} onChange={e => setRegNo(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs uppercase" />
+              <input type="text" required placeholder="Make & Model (e.g. Toyota Noah)" value={makeModel} onChange={e => setMakeModel(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs" />
+              <select value={vehicleType} onChange={e => setVehicleType(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs bg-white">
                 <option value="MPV">MPV</option>
                 <option value="Van">Van</option>
                 <option value="4x4 Land Cruiser">4x4 Land Cruiser</option>
@@ -778,11 +836,58 @@ export default function TransportSection({
                 <option value="Sedan">Sedan</option>
                 <option value="Truck">Truck</option>
               </select>
-              <input type="number" min="1" placeholder="Seats / Capacity" value={capacity} onChange={e => setCapacity(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
-              <button type="submit" className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold">Add Vehicle</button>
+              <input type="number" min="1" placeholder="Seats / Capacity" value={capacity} onChange={e => setCapacity(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs" />
+              <button type="submit" className="w-full px-3 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm sm:text-xs font-semibold">Add Vehicle</button>
             </form>
           )}
-          <div className="overflow-x-auto">
+
+          {/* Mobile Fleet Cards */}
+          <div className="md:hidden space-y-3">
+            {vehicles.map(v => {
+              const st = vehicleStats.get(v.id) ?? { revenue: 0, costs: 0, trips: 0 };
+              const margin = st.revenue - st.costs;
+              return (
+                <div key={v.id} className="border border-slate-200 rounded-xl p-3.5 space-y-2 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <span className="font-mono font-bold text-slate-900">{v.registration_no}</span>
+                      <div className="text-slate-500">{v.make_model} ({v.vehicle_type})</div>
+                    </div>
+                    <select
+                      disabled={isReadOnly}
+                      value={v.status}
+                      onChange={e => handleVehicleStatus(v.id, e.target.value as Vehicle['status'])}
+                      className="border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white font-semibold"
+                    >
+                      <option value="ACTIVE">ACTIVE</option>
+                      <option value="MAINTENANCE">MAINTENANCE</option>
+                      <option value="INACTIVE">INACTIVE</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
+                    <div>
+                      <div className="text-slate-400">Revenue</div>
+                      <div className="font-semibold text-blue-600">{currency} {st.revenue.toLocaleString()}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-400">Costs</div>
+                      <div className="font-semibold text-rose-600">{currency} {st.costs.toLocaleString()}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-400">Margin ({st.trips})</div>
+                      <div className={`font-bold ${margin >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        {currency} {margin.toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {vehicles.length === 0 && <p className="py-4 text-xs text-slate-400">No vehicles registered yet.</p>}
+          </div>
+
+          {/* Desktop Fleet Table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="uppercase text-slate-500 border-b border-slate-200">
                 <tr>
@@ -834,15 +939,15 @@ export default function TransportSection({
 
       {/* DRIVERS */}
       {tab === 'DRIVERS' && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 space-y-4">
           <h3 className="text-sm font-bold text-slate-900">Drivers &amp; License Compliance</h3>
           {!isReadOnly && (
-            <form onSubmit={handleAddDriver} className="grid grid-cols-2 md:grid-cols-5 gap-2.5">
-              <input type="text" required placeholder="Full Name" value={driverName} onChange={e => setDriverName(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
-              <input type="text" placeholder="Phone (+254...)" value={driverPhone} onChange={e => setDriverPhone(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
-              <input type="text" placeholder="License No." value={licenseNo} onChange={e => setLicenseNo(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
-              <input type="date" value={licenseExpiry} onChange={e => setLicenseExpiry(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
-              <button type="submit" className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold">Add Driver</button>
+            <form onSubmit={handleAddDriver} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2.5">
+              <input type="text" required placeholder="Full Name" value={driverName} onChange={e => setDriverName(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs" />
+              <input type="text" placeholder="Phone (+254...)" value={driverPhone} onChange={e => setDriverPhone(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs" />
+              <input type="text" placeholder="License No." value={licenseNo} onChange={e => setLicenseNo(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs" />
+              <input type="date" value={licenseExpiry} onChange={e => setLicenseExpiry(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs" />
+              <button type="submit" className="w-full px-3 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm sm:text-xs font-semibold">Add Driver</button>
             </form>
           )}
           <div className="divide-y divide-slate-100 text-xs">
@@ -880,12 +985,12 @@ export default function TransportSection({
 
       {/* FUEL & MAINTENANCE COSTS */}
       {tab === 'COSTS' && (
-        <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
+        <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 space-y-4">
           <h3 className="text-sm font-bold text-slate-900">Fuel, Maintenance &amp; Trip Costs (Auto-posts to Core GL)</h3>
           {!isReadOnly && (
-            <form onSubmit={handleAddCost} className="grid grid-cols-2 md:grid-cols-6 gap-2.5">
-              <input type="date" required value={costDate} onChange={e => setCostDate(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
-              <select value={costType} onChange={e => setCostType(e.target.value as VehicleCost['cost_type'])} className="border border-slate-300 rounded-xl p-2 text-xs bg-white">
+            <form onSubmit={handleAddCost} className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-2.5">
+              <input type="date" required value={costDate} onChange={e => setCostDate(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs" />
+              <select value={costType} onChange={e => setCostType(e.target.value as VehicleCost['cost_type'])} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs bg-white">
                 <option value="FUEL">Fuel</option>
                 <option value="MAINTENANCE">Maintenance</option>
                 <option value="TOLL">Toll / Parking</option>
@@ -893,29 +998,29 @@ export default function TransportSection({
                 <option value="INSURANCE">Insurance</option>
                 <option value="OTHER">Other</option>
               </select>
-              <select value={costVehicleId} onChange={e => setCostVehicleId(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white">
+              <select value={costVehicleId} onChange={e => setCostVehicleId(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs bg-white">
                 <option value="">Vehicle (Optional)</option>
                 {vehicles.map(v => <option key={v.id} value={v.id}>{v.registration_no}</option>)}
               </select>
-              <select value={costTripId} onChange={e => setCostTripId(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs bg-white">
+              <select value={costTripId} onChange={e => setCostTripId(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs bg-white">
                 <option value="">Trip (Optional)</option>
                 {trips.map(t => <option key={t.id} value={t.id}>{t.trip_code} ({t.client_name})</option>)}
               </select>
-              <input type="number" required min="1" step="0.01" placeholder={`Amount (${currency})`} value={costAmount} onChange={e => setCostAmount(e.target.value)} className="border border-slate-300 rounded-xl p-2 text-xs" />
-              <button type="submit" className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold">Log Cost</button>
+              <input type="number" required min="1" step="0.01" placeholder={`Amount (${currency})`} value={costAmount} onChange={e => setCostAmount(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm sm:text-xs" />
+              <button type="submit" className="w-full px-3 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm sm:text-xs font-semibold">Log Cost</button>
             </form>
           )}
           <div className="divide-y divide-slate-100 text-xs">
             {costs.map(c => {
               const v = c.vehicle_id ? vehicleMap.get(c.vehicle_id) : undefined;
               return (
-                <div key={c.id} className="py-2.5 flex justify-between items-center">
+                <div key={c.id} className="py-2.5 flex justify-between items-center gap-2">
                   <span>
                     <strong>{c.cost_type}</strong> &middot; {c.cost_date}
                     {v ? ` · ${v.registration_no}` : ''}
                     {c.vendor ? ` (${c.vendor})` : ''}
                   </span>
-                  <span className="font-semibold text-rose-600">{currency} {Number(c.amount_kes).toLocaleString()}</span>
+                  <span className="font-semibold text-rose-600 shrink-0">{currency} {Number(c.amount_kes).toLocaleString()}</span>
                 </div>
               );
             })}

@@ -56,6 +56,7 @@ import {
   PackageCheck,
   Scale,
   Truck,
+  Menu,
   MapPin,
   Fuel,
   BarChart3
@@ -136,6 +137,7 @@ export default function AccountingApp() {
   // Navigation & Filters
   const [section, setSection] = useState<Section>('OVERVIEW');
   const [transportTab, setTransportTab] = useState<TransportTab>('TRIPS');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [salesTab, setSalesTab] = useState<'ALL' | 'QUOTE' | 'INVOICE' | 'RECEIPT'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedYear, setSelectedYear] = useState('ALL');
@@ -417,6 +419,7 @@ export default function AccountingApp() {
   const openTransportTab = (nextTab: TransportTab) => {
     setTransportTab(nextTab);
     setSection('TRANSPORT');
+    setMobileNavOpen(false);
   };
 
   const handleDeleteQuote = async (quote: DocumentRecord) => {
@@ -738,73 +741,113 @@ export default function AccountingApp() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col md:flex-row font-sans">
 
-      {/* LEFT SIDEBAR */}
+      {/* LEFT SIDEBAR (Collapsible on Mobile) */}
       <aside className="w-full md:w-64 bg-white border-b md:border-b-0 md:border-r border-slate-200 p-4 flex flex-col justify-between shrink-0">
-        <div className="space-y-5">
-          <div className="flex items-center gap-3 px-2">
-            {org?.logo_url ? (
-              // eslint-disable-next-line @next/next/no-img-element -- logo URL comes from Supabase Storage or legacy data: URL
-              <img src={org.logo_url} alt="Logo" className="w-9 h-9 rounded-lg object-contain border border-slate-200" />
-            ) : (
-              <div className={`p-2 rounded-lg text-white ${hasTransportAddon ? 'bg-slate-900' : 'bg-blue-600'}`}>
-                {hasTransportAddon ? <Truck className="w-5 h-5" /> : <Building2 className="w-5 h-5" />}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-2 px-1">
+            <div className="flex items-center gap-3 min-w-0">
+              {org?.logo_url ? (
+                // eslint-disable-next-line @next/next/no-img-element -- logo URL comes from Supabase Storage or legacy data: URL
+                <img src={org.logo_url} alt="Logo" className="w-9 h-9 rounded-lg object-contain border border-slate-200 shrink-0" />
+              ) : (
+                <div className={`p-2 rounded-lg text-white shrink-0 ${hasTransportAddon ? 'bg-slate-900' : 'bg-blue-600'}`}>
+                  {hasTransportAddon ? <Truck className="w-5 h-5" /> : <Building2 className="w-5 h-5" />}
+                </div>
+              )}
+              <div className="min-w-0">
+                <div className="font-bold text-sm text-slate-900 truncate">{org?.name}</div>
+                <div className="text-xs text-slate-500 truncate">{sub?.plan || 'STARTER'} &middot; {org?.industry}</div>
               </div>
-            )}
-            <div className="min-w-0">
-              <div className="font-bold text-sm text-slate-900 truncate">{org?.name}</div>
-              <div className="text-xs text-slate-500 truncate">{sub?.plan || 'STARTER'} &middot; {org?.industry}</div>
             </div>
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(o => !o)}
+              aria-label="Toggle navigation"
+              className="md:hidden p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100"
+            >
+              {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
           </div>
 
-          {enabledModules.length > 0 && (
-            <div className="px-2 flex flex-wrap gap-1">
-              {enabledModules.map(mod => (
-                <span key={mod} className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                  {mod}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* Business Switcher */}
-          <div className="space-y-1.5">
-            {memberships.length > 1 && (
-              <select
-                value={org?.id || ''}
-                onChange={e => {
-                  const found = memberships.find(m => m.id === e.target.value);
-                  if (!found) return;
-                  setDocs([]);
-                  setExpenses([]);
-                  setSection('OVERVIEW');
-                  setOrg(found);
-                }}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-700"
-              >
-                {memberships.map(m => (
-                  <option key={m.id} value={m.id}>{m.name} ({m.role})</option>
+          <div className={`${mobileNavOpen ? 'block' : 'hidden'} md:block space-y-4`}>
+            {enabledModules.length > 0 && (
+              <div className="px-1 flex flex-wrap gap-1">
+                {enabledModules.map(mod => (
+                  <span key={mod} className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                    {mod}
+                  </span>
                 ))}
-              </select>
-            )}
-            {user.email?.toLowerCase() === PLATFORM_ADMIN_EMAIL && (
-              <a href="/admin" className="block w-full px-2 text-xs text-blue-600 font-semibold hover:underline">
-                Platform Admin Console
-              </a>
-            )}
-          </div>
-
-          {hasTransportAddon && (
-            <div className="space-y-1">
-              <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Transport Operations
               </div>
-              <nav className="flex md:flex-col gap-1 overflow-x-auto">
-                {transportNavItems.map(item => (
+            )}
+
+            {/* Business Switcher */}
+            <div className="space-y-1.5">
+              {memberships.length > 1 && (
+                <select
+                  value={org?.id || ''}
+                  onChange={e => {
+                    const found = memberships.find(m => m.id === e.target.value);
+                    if (!found) return;
+                    setDocs([]);
+                    setExpenses([]);
+                    setSection('OVERVIEW');
+                    setMobileNavOpen(false);
+                    setOrg(found);
+                  }}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-700"
+                >
+                  {memberships.map(m => (
+                    <option key={m.id} value={m.id}>{m.name} ({m.role})</option>
+                  ))}
+                </select>
+              )}
+              {user.email?.toLowerCase() === PLATFORM_ADMIN_EMAIL && (
+                <a href="/admin" className="block w-full px-2 text-xs text-blue-600 font-semibold hover:underline">
+                  Platform Admin Console
+                </a>
+              )}
+            </div>
+
+            {hasTransportAddon && (
+              <div className="space-y-1">
+                <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Transport Operations
+                </div>
+                <nav className="flex flex-col gap-1">
+                  {transportNavItems.map(item => (
+                    <button
+                      key={item.label}
+                      onClick={() => {
+                        item.onClick();
+                        setMobileNavOpen(false);
+                      }}
+                      className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition ${
+                        item.active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      <item.icon className="w-4 h-4" /> {item.label}
+                    </button>
+                  ))}
+                </nav>
+              </div>
+            )}
+
+            <div className="space-y-1">
+              {hasTransportAddon && (
+                <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Finance &amp; Accounting
+                </div>
+              )}
+              <nav className="flex flex-col gap-1">
+                {accountingNavItems.map(item => (
                   <button
-                    key={item.label}
-                    onClick={item.onClick}
+                    key={item.id}
+                    onClick={() => {
+                      setSection(item.id);
+                      setMobileNavOpen(false);
+                    }}
                     className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition ${
-                      item.active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                      section === item.id ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
                     <item.icon className="w-4 h-4" /> {item.label}
@@ -812,27 +855,22 @@ export default function AccountingApp() {
                 ))}
               </nav>
             </div>
-          )}
 
-          <div className="space-y-1">
-            {hasTransportAddon && (
-              <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Finance &amp; Accounting
-              </div>
-            )}
-            <nav className="flex md:flex-col gap-1 overflow-x-auto">
-              {accountingNavItems.map(item => (
-                <button
-                  key={item.id}
-                  onClick={() => setSection(item.id)}
-                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition ${
-                    section === item.id ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  <item.icon className="w-4 h-4" /> {item.label}
-                </button>
-              ))}
-            </nav>
+            <div className="md:hidden pt-3 border-t border-slate-200 flex items-center justify-between gap-2">
+              <span className="text-xs text-slate-500 truncate">{user.email}</span>
+              <button
+                onClick={async () => {
+                  await supabase.auth.signOut();
+                  setUser(null);
+                  setOrg(null);
+                  setDocs([]);
+                  setExpenses([]);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-lg"
+              >
+                <LogOut className="w-4 h-4" /> Sign Out
+              </button>
+            </div>
           </div>
         </div>
 
@@ -854,7 +892,7 @@ export default function AccountingApp() {
       </aside>
 
       {/* MAIN CONTENT */}
-      <main className="flex-1 p-4 md:p-8 max-w-6xl space-y-6">
+      <main className="flex-1 min-w-0 p-4 md:p-8 max-w-6xl space-y-6">
         {subscriptionLocked && sub && (
           <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-medium">
             Subscription {sub.status === 'SUSPENDED' ? 'suspended' : 'expired'} (ended {sub.current_period_end}). You can still view and export your records, but creating new documents or expenses is locked until renewed.
