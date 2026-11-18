@@ -42,7 +42,7 @@ async function main() {
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false } });
 
-  const [orgs, coa, entries, lines, docs, payments, allocs, expenses] = await Promise.all([
+  const [orgs, coa, entries, lines, docs, payments, allocs, expenses, supplierBills, variants] = await Promise.all([
     fetchAll(admin, 'organizations'),
     fetchAll(admin, 'chart_of_accounts'),
     fetchAll(admin, 'journal_entries'),
@@ -50,7 +50,9 @@ async function main() {
     fetchAll(admin, 'documents'),
     fetchAll(admin, 'payments'),
     fetchAll(admin, 'payment_allocations'),
-    fetchAll(admin, 'expenses')
+    fetchAll(admin, 'expenses'),
+    fetchAll(admin, 'supplier_bills'),
+    fetchAll(admin, 'product_variants')
   ]);
 
   // 1. Entry-level balance & reversal integrity check
@@ -126,6 +128,16 @@ async function main() {
     assert.equal(actualDeposits, expectedDeposits, `${org.name} Deposits (2200) mismatch: GL=${actualDeposits} vs Subledger=${expectedDeposits}`);
     assert.equal(actualNetCash, expectedNetCash, `${org.name} Cash/Bank/M-PESA mismatch: GL=${actualNetCash} vs Subledger=${expectedNetCash}`);
     assert.equal(actualExpenses, expectedExpenses, `${org.name} Expenses (6010) mismatch: GL=${actualExpenses} vs Subledger=${expectedExpenses}`);
+
+    const orgBills = supplierBills.filter(b => b.org_id === org.id && b.status !== 'VOID');
+    const expectedAP = round2(orgBills.reduce((s, b) => s + (Number(b.total_amount) - Number(b.amount_paid || 0)), 0));
+    const actualAP = round2(-(netByCode['2000'] || 0));
+    assert.equal(actualAP, expectedAP, `${org.name} AP (2000) mismatch: GL=${actualAP} vs Subledger=${expectedAP}`);
+
+    const orgVariants = variants.filter(v => v.org_id === org.id);
+    const expectedInv = round2(orgVariants.reduce((s, v) => s + Number(v.stock_qty) * Number(v.cost_price), 0));
+    const actualInv = round2(netByCode['1200'] || 0);
+    assert.equal(actualInv, expectedInv, `${org.name} Inventory (1200) mismatch: GL=${actualInv} vs Valuation=${expectedInv}`);
 
     console.log(
       `PASS: ${org.name} | Rev=${actualNetRevenue.toFixed(2)} | AR=${actualAR.toFixed(2)} | Cash=${actualNetCash.toFixed(2)} | Exp=${actualExpenses.toFixed(2)} | Dep=${actualDeposits.toFixed(2)}`

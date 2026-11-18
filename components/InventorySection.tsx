@@ -370,6 +370,7 @@ export default function InventorySection({ orgId, currency, products, isGrowthPl
                   <th className="py-2 px-2">Cost</th>
                   <th className="py-2 px-2">Sell Price</th>
                   <th className="py-2 px-2">On Hand</th>
+                  <th className="py-2 px-2">Valuation</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -386,11 +387,12 @@ export default function InventorySection({ orgId, currency, products, isGrowthPl
                           {low && <AlertTriangle className="w-3.5 h-3.5" />} {Number(v.stock_qty)}
                         </span>
                       </td>
+                      <td className="py-2.5 px-2 font-semibold text-blue-700">{currency} {(Number(v.stock_qty) * Number(v.cost_price)).toLocaleString()}</td>
                     </tr>
                   );
                 })}
                 {variants.length === 0 && (
-                  <tr><td colSpan={5} className="py-4 text-slate-400">No SKU variants created yet.</td></tr>
+                  <tr><td colSpan={6} className="py-4 text-slate-400">No SKU variants created yet.</td></tr>
                 )}
               </tbody>
             </table>
@@ -414,6 +416,7 @@ export default function InventorySection({ orgId, currency, products, isGrowthPl
                 <option value="ADJUSTMENT_GAIN">Adjustment Gain (+)</option>
                 <option value="ADJUSTMENT_LOSS">Adjustment Loss (-)</option>
                 <option value="RETURN_IN">Customer Return (+)</option>
+                <option value="SUPPLIER_RETURN">Supplier Return (-Stock)</option>
               </select>
               <input type="number" required min="0.01" step="0.01" placeholder="Quantity" value={moveQty} onChange={e => setMoveQty(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2 text-xs" />
               <input type="number" min="0" step="0.01" placeholder="Unit Cost" value={moveCost} onChange={e => setMoveCost(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2 text-xs" />
