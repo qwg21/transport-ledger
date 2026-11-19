@@ -48,7 +48,10 @@ export interface Trip {
   destination: string;
   distance_km: number | null;
   agreed_fare: number;
-  status: 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  status: 'ENQUIRY' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  source?: string | null;
+  pickup_time?: string | null;
+  requested_vehicle_type?: string | null;
   quote_id?: string | null;
   invoice_id?: string | null;
 }
@@ -115,6 +118,8 @@ export default function TransportSection({
   const [trips, setTrips] = useState<Trip[]>([]);
   const [costs, setCosts] = useState<VehicleCost[]>([]);
   const [billingTripId, setBillingTripId] = useState<string | null>(null);
+  const [bookingKey, setBookingKey] = useState<string | null>(null);
+  const [showWebhookInfo, setShowWebhookInfo] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Vehicle form
@@ -158,6 +163,12 @@ export default function TransportSection({
       supabase.from('trips').select('*').eq('org_id', orgId).order('trip_date', { ascending: false }).limit(50),
       supabase.from('vehicle_costs').select('*').eq('org_id', orgId).order('cost_date', { ascending: false }).limit(50)
     ]);
+    const { data: orgRow } = await supabase
+      .from('organizations')
+      .select('booking_api_key')
+      .eq('id', orgId)
+      .maybeSingle();
+    setBookingKey((orgRow as { booking_api_key?: string | null } | null)?.booking_api_key ?? null);
     if (!vRes.error) setVehicles((vRes.data as Vehicle[] | null) ?? []);
     if (!dRes.error) setDrivers((dRes.data as Driver[] | null) ?? []);
     if (!tRes.error) setTrips((tRes.data as Trip[] | null) ?? []);
@@ -173,7 +184,13 @@ export default function TransportSection({
         supabase.from('trips').select('*').eq('org_id', orgId).order('trip_date', { ascending: false }).limit(50),
         supabase.from('vehicle_costs').select('*').eq('org_id', orgId).order('cost_date', { ascending: false }).limit(50)
       ]);
+      const { data: orgRow } = await supabase
+        .from('organizations')
+        .select('booking_api_key')
+        .eq('id', orgId)
+        .maybeSingle();
       if (!active) return;
+      setBookingKey((orgRow as { booking_api_key?: string | null } | null)?.booking_api_key ?? null);
       if (!vRes.error) setVehicles((vRes.data as Vehicle[] | null) ?? []);
       if (!dRes.error) setDrivers((dRes.data as Driver[] | null) ?? []);
       if (!tRes.error) setTrips((tRes.data as Trip[] | null) ?? []);
@@ -705,7 +722,46 @@ export default function TransportSection({
       {/* TRIPS */}
       {tab === 'TRIPS' && (
         <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 space-y-4">
-          <h3 className="text-sm font-bold text-slate-900">Trips &amp; Charters</h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-bold text-slate-900">Trips &amp; Charters</h3>
+            <button
+              type="button"
+              onClick={() => setShowWebhookInfo(v => !v)}
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold"
+            >
+              {showWebhookInfo ? 'Hide Website API' : 'Connect Website Bookings'}
+            </button>
+          </div>
+
+          {showWebhookInfo && (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs space-y-2">
+              <div className="font-semibold text-slate-800">Website Booking Webhook (Per-Business Key)</div>
+              <div className="text-slate-600">
+                POST bookings from any client website to{' '}
+                <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200 font-mono">
+                  https://biasharaledger.vercel.app/api/transport/bookings
+                </code>{' '}
+                with header <code className="bg-white px-1.5 py-0.5 rounded border border-slate-200 font-mono">x-booking-key</code>:
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <code className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 font-mono text-[11px] break-all">
+                  {bookingKey || 'Run 20261119_02 SQL migration to generate key'}
+                </code>
+                {bookingKey && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(bookingKey);
+                      alert('Booking key copied.');
+                    }}
+                    className="px-2.5 py-1.5 bg-slate-900 text-white rounded-lg font-semibold"
+                  >
+                    Copy Key
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           {!isReadOnly && (
             <form onSubmit={handleAddTrip} className="space-y-2.5">
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2.5">
@@ -761,8 +817,18 @@ export default function TransportSection({
                 <div key={t.id} className="border border-slate-200 rounded-xl p-3.5 space-y-2.5 text-xs">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <div className="font-mono font-bold text-slate-900">{t.trip_code}</div>
+                      <div className="font-mono font-bold text-slate-900">
+                        {t.trip_code}
+                        {t.source === 'WEBSITE' && <span className="ml-1.5 px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 font-bold text-[10px]">WEB</span>}
+                      </div>
                       <div className="text-slate-400">{t.trip_date}</div>
+                      {(t.pickup_time || t.requested_vehicle_type) && (
+                        <div className="text-slate-400">
+                          {t.pickup_time && `Pickup ${t.pickup_time}`}
+                          {t.pickup_time && t.requested_vehicle_type && ' · '}
+                          {t.requested_vehicle_type}
+                        </div>
+                      )}
                     </div>
                     <div className="text-right">
                       <div className="font-bold text-slate-900">{currency} {Number(t.agreed_fare).toLocaleString()}</div>
@@ -783,6 +849,7 @@ export default function TransportSection({
                       onChange={e => handleTripStatus(t.id, e.target.value as Trip['status'])}
                       className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white font-semibold"
                     >
+                      <option value="ENQUIRY">ENQUIRY</option>
                       <option value="SCHEDULED">SCHEDULED</option>
                       <option value="IN_PROGRESS">IN_PROGRESS</option>
                       <option value="COMPLETED">COMPLETED</option>
@@ -817,8 +884,18 @@ export default function TransportSection({
                   return (
                     <tr key={t.id}>
                       <td className="py-2.5 px-2">
-                        <div className="font-mono font-semibold">{t.trip_code}</div>
+                        <div className="font-mono font-semibold">
+                          {t.trip_code}
+                          {t.source === 'WEBSITE' && <span className="ml-1.5 px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 font-bold text-[10px]">WEB</span>}
+                        </div>
                         <div className="text-slate-400">{t.trip_date}</div>
+                        {(t.pickup_time || t.requested_vehicle_type) && (
+                          <div className="text-slate-400">
+                            {t.pickup_time && `Pickup ${t.pickup_time}`}
+                            {t.pickup_time && t.requested_vehicle_type && ' · '}
+                            {t.requested_vehicle_type}
+                          </div>
+                        )}
                       </td>
                       <td className="py-2.5 px-2">
                         <div className="font-semibold text-slate-800">{t.client_name}</div>
@@ -839,6 +916,7 @@ export default function TransportSection({
                           onChange={e => handleTripStatus(t.id, e.target.value as Trip['status'])}
                           className="border border-slate-200 rounded-lg px-2 py-1 text-xs bg-white font-semibold"
                         >
+                          <option value="ENQUIRY">ENQUIRY</option>
                           <option value="SCHEDULED">SCHEDULED</option>
                           <option value="IN_PROGRESS">IN_PROGRESS</option>
                           <option value="COMPLETED">COMPLETED</option>
