@@ -66,6 +66,7 @@ export interface Subscription {
   current_period_end: string;
   transport_addon?: boolean;
   enabled_modules?: string[];
+  capability_overrides?: Record<string, boolean> | null;
 }
 
 export interface Customer {

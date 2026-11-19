@@ -11,6 +11,7 @@ import {
   invoiceBalance,
   todayLocal
 } from '@/lib/documents';
+import { hasCapability, resolveEntitlements } from '@/lib/entitlements';
 import type {
   Customer,
   DocumentRecord,
@@ -368,21 +369,17 @@ export default function AccountingApp() {
   const receivables = dateDocs.reduce((sum, d) => sum + invoiceBalance(d), 0);
   const totalExpenses = dateExpenses.reduce((s, e) => s + Number(e.amount_kes || 0), 0);
   const netCashPosition = cashCollected - totalExpenses;
-  const subscriptionLocked = Boolean(
-    sub &&
-    (sub.status === 'SUSPENDED' ||
-      sub.status === 'CANCELLED' ||
-      sub.current_period_end < todayLocal())
-  );
-  const isGrowthPlus = Boolean(sub && ['GROWTH', 'INTELLIGENCE', 'ENTERPRISE'].includes(sub.plan));
-  const isIntelligencePlus = Boolean(sub && ['INTELLIGENCE', 'ENTERPRISE'].includes(sub.plan));
-  const enabledModules = Array.from(
-    new Set([
-      ...(sub?.enabled_modules ?? []),
-      ...(sub?.transport_addon ? ['TRANSPORT'] : [])
-    ])
-  );
-  const hasTransportAddon = enabledModules.includes('TRANSPORT');
+  const entitlements = resolveEntitlements(sub, org?.role ?? 'owner', todayLocal());
+  const subscriptionLocked = !entitlements.canWrite;
+  const isGrowthPlus =
+    hasCapability(entitlements, 'inventory.stock_control') ||
+    hasCapability(entitlements, 'core.suppliers_ap');
+  const isIntelligencePlus = hasCapability(entitlements, 'intelligence.bi');
+  const canManageSuppliersAp = hasCapability(entitlements, 'core.suppliers_ap');
+  const canManageStockControl = hasCapability(entitlements, 'inventory.stock_control');
+  const canViewGlStatements = hasCapability(entitlements, 'core.gl_statements');
+  const enabledModules = Array.from(entitlements.modules);
+  const hasTransportAddon = hasCapability(entitlements, 'transport.trips');
 
   // Transport Command metrics (active only when hasTransportAddon is true)
   const activeVehiclesCount = vehicles.filter(v => v.status === 'ACTIVE').length;
@@ -697,10 +694,16 @@ export default function AccountingApp() {
     { id: 'EXPENSES', label: 'Expenses', icon: ReceiptText },
     { id: 'CUSTOMERS', label: 'Customers', icon: Users },
     ...(!hasTransportAddon ? [{ id: 'CATALOGUE' as Section, label: 'Products & Services', icon: Package }] : []),
-    ...(isGrowthPlus || enabledModules.includes('WAREHOUSE')
-      ? [{ id: 'INVENTORY' as Section, label: 'Inventory & Suppliers', icon: PackageCheck }]
+    ...(canManageStockControl || canManageSuppliersAp
+      ? [
+          {
+            id: 'INVENTORY' as Section,
+            label: canManageStockControl ? 'Inventory & Suppliers' : 'Suppliers & Bills',
+            icon: canManageStockControl ? PackageCheck : ReceiptText
+          }
+        ]
       : []),
-    { id: 'REPORTS', label: 'Financial Reports', icon: Scale },
+    ...(canViewGlStatements ? [{ id: 'REPORTS' as Section, label: 'Financial Reports', icon: Scale }] : []),
     ...(isIntelligencePlus ? [{ id: 'INTELLIGENCE' as Section, label: 'Intelligence', icon: BarChart3 }] : []),
     { id: 'SETTINGS', label: 'Branding & Settings', icon: Settings }
   ];
@@ -936,7 +939,7 @@ export default function AccountingApp() {
             {section === 'EXPENSES' && 'Purchases & Operating Expenses'}
             {section === 'CUSTOMERS' && 'Customers Directory'}
             {section === 'CATALOGUE' && 'Products & Services'}
-            {section === 'INVENTORY' && 'Inventory, Variants & Suppliers'}
+            {section === 'INVENTORY' && (canManageStockControl ? 'Inventory, Variants & Suppliers' : 'Suppliers & Bills (AP)')}
             {section === 'REPORTS' && 'Financial Statements (GL)'}
             {section === 'TRANSPORT' && 'Transport & Fleet Operations'}
             {section === 'INTELLIGENCE' && 'Business Intelligence & Reports'}
@@ -1220,13 +1223,15 @@ export default function AccountingApp() {
         )}
 
         {/* INVENTORY & SUPPLIERS */}
-        {section === 'INVENTORY' && org && (
+        {section === 'INVENTORY' && org && (canManageStockControl || canManageSuppliersAp) && (
           <InventorySection
             orgId={org.id}
             currency={currency}
             products={products}
             isGrowthPlus={isGrowthPlus}
             isReadOnly={subscriptionLocked}
+            canManageSuppliersAp={canManageSuppliersAp}
+            canManageStockControl={canManageStockControl}
           />
         )}
 

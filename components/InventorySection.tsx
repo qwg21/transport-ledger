@@ -14,10 +14,20 @@ type Props = {
   products: Product[];
   isGrowthPlus: boolean;
   isReadOnly: boolean;
+  canManageSuppliersAp?: boolean;
+  canManageStockControl?: boolean;
 };
 
-export default function InventorySection({ orgId, currency, products, isGrowthPlus, isReadOnly }: Props) {
-  const [tab, setTab] = useState<InventoryTab>('VARIANTS');
+export default function InventorySection({
+  orgId,
+  currency,
+  products,
+  isGrowthPlus,
+  isReadOnly,
+  canManageSuppliersAp = isGrowthPlus,
+  canManageStockControl = isGrowthPlus
+}: Props) {
+  const [tab, setTab] = useState<InventoryTab>(canManageStockControl ? 'VARIANTS' : 'BILLS');
   const [variants, setVariants] = useState<ProductVariant[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -275,20 +285,24 @@ export default function InventorySection({ orgId, currency, products, isGrowthPl
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div className="bg-white border border-slate-200 rounded-2xl p-4">
-          <p className="text-xs text-slate-500">Tracked SKUs</p>
-          <p className="text-2xl font-bold text-slate-900 mt-1">{variants.length}</p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-2xl p-4">
-          <p className="text-xs text-slate-500">Stock Valuation</p>
-          <p className="text-lg font-bold text-blue-600 mt-1">{currency} {totalStockValue.toLocaleString()}</p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-2xl p-4">
-          <p className="text-xs text-slate-500">Low-Stock Alerts</p>
-          <p className={`text-2xl font-bold mt-1 ${lowStockCount > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
-            {lowStockCount}
-          </p>
-        </div>
+        {canManageStockControl && (
+          <>
+            <div className="bg-white border border-slate-200 rounded-2xl p-4">
+              <p className="text-xs text-slate-500">Tracked SKUs</p>
+              <p className="text-2xl font-bold text-slate-900 mt-1">{variants.length}</p>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-2xl p-4">
+              <p className="text-xs text-slate-500">Stock Valuation</p>
+              <p className="text-lg font-bold text-blue-600 mt-1">{currency} {totalStockValue.toLocaleString()}</p>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-2xl p-4">
+              <p className="text-xs text-slate-500">Low-Stock Alerts</p>
+              <p className={`text-2xl font-bold mt-1 ${lowStockCount > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                {lowStockCount}
+              </p>
+            </div>
+          </>
+        )}
         <div className="bg-white border border-slate-200 rounded-2xl p-4">
           <p className="text-xs text-slate-500">Unpaid Supplier Bills</p>
           <p className="text-lg font-bold text-rose-600 mt-1">{currency} {totalPayables.toLocaleString()}</p>
@@ -312,11 +326,19 @@ export default function InventorySection({ orgId, currency, products, isGrowthPl
       <div className="flex gap-2 overflow-x-auto pb-1">
         {(
           [
-            { id: 'VARIANTS', label: 'SKU Variants & Stock', icon: PackageCheck },
-            { id: 'MOVEMENTS', label: 'Stock Movements (GRN / Issues)', icon: ArrowUpDown },
-            { id: 'BILLS', label: 'Supplier Bills & AP', icon: ReceiptText },
-            { id: 'SUPPLIERS', label: 'Suppliers', icon: Truck }
-          ] as const
+            ...(canManageStockControl
+              ? [
+                  { id: 'VARIANTS' as const, label: 'SKU Variants & Stock', icon: PackageCheck },
+                  { id: 'MOVEMENTS' as const, label: 'Stock Movements (GRN / Issues)', icon: ArrowUpDown }
+                ]
+              : []),
+            ...(canManageSuppliersAp
+              ? [
+                  { id: 'BILLS' as const, label: 'Supplier Bills & AP', icon: ReceiptText },
+                  { id: 'SUPPLIERS' as const, label: 'Suppliers', icon: Truck }
+                ]
+              : [])
+          ]
         ).map(t => {
           const Icon = t.icon;
           return (
