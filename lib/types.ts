@@ -115,7 +115,7 @@ export interface StockMovement {
   id: string;
   org_id: string;
   variant_id: string;
- movement_type: 'GRN_RECEIPT' | 'SALE_ISSUE' | 'ADJUSTMENT_GAIN' | 'ADJUSTMENT_LOSS' | 'RETURN_IN';movement_type: 'GRN_RECEIPT' | 'SALE_ISSUE' | 'ADJUSTMENT_GAIN' | 'ADJUSTMENT_LOSS' | 'RETURN_IN' | 'SUPPLIER_RETURN';
+ movement_type: 'GRN_RECEIPT' | 'SALE_ISSUE' | 'ADJUSTMENT_GAIN' | 'ADJUSTMENT_LOSS' | 'RETURN_IN' | 'SUPPLIER_RETURN';
   quantity: number;
   unit_cost: number;
   source_type?: string | null;
