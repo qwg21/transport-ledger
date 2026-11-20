@@ -43,6 +43,7 @@ import {
   ReceiptText,
   Settings,
   LogOut,
+  Plus,
   PlusCircle,
   FileSpreadsheet,
   Download,
@@ -744,28 +745,65 @@ export default function AccountingApp() {
     }
   ];
 
+  const sectionTitle =
+    section === 'OVERVIEW'
+      ? hasTransportAddon
+        ? 'Transport & Fleet Command'
+        : 'Business Overview'
+      : section === 'SALES'
+        ? 'Sales & Invoicing'
+        : section === 'STATEMENTS'
+          ? 'Statements'
+          : section === 'EXPENSES'
+            ? 'Purchases & Expenses'
+            : section === 'CUSTOMERS'
+              ? 'Customers'
+              : section === 'CATALOGUE'
+                ? 'Products & Services'
+                : section === 'INVENTORY'
+                  ? canManageStockControl
+                    ? 'Inventory & Suppliers'
+                    : 'Suppliers & Bills'
+                  : section === 'REPORTS'
+                    ? 'Financial Statements'
+                    : section === 'TRANSPORT'
+                      ? 'Transport Operations'
+                      : section === 'INTELLIGENCE'
+                        ? 'Business Intelligence'
+                        : 'Settings';
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col md:flex-row font-sans">
 
       {/* LEFT SIDEBAR (Collapsible on Mobile) */}
-      <aside className="w-full md:w-64 bg-white border-b md:border-b-0 md:border-r border-slate-200 p-3 md:p-4 flex flex-col justify-between shrink-0">
-        <div className="space-y-4">
+      <aside className="w-full md:w-64 bg-white border-b md:border-b-0 md:border-r border-slate-200 px-4 py-3 md:p-5 flex flex-col justify-between shrink-0">
+        <div className="space-y-5">
           {/* Mobile Slim Top Bar */}
-          <div className="flex md:hidden items-center justify-between gap-2">
-            <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex md:hidden items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
               <button
                 type="button"
                 onClick={() => setMobileNavOpen(o => !o)}
                 aria-label="Toggle navigation"
-                className="p-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-100 shrink-0"
+                className="p-2 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 shrink-0"
               >
                 {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
               </button>
-              <span className="font-bold text-sm text-slate-900 truncate">{org?.name}</span>
+              <span className="font-bold text-base text-slate-900 truncate">{sectionTitle}</span>
             </div>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700 shrink-0">
-              {sub?.plan || 'STARTER'}
-            </span>
+            <button
+              type="button"
+              disabled={subscriptionLocked}
+              onClick={() => {
+                if (section === 'EXPENSES') setShowExpenseModal(true);
+                else if (hasTransportAddon && (section === 'OVERVIEW' || section === 'TRANSPORT')) openTransportTab('TRIPS');
+                else setShowDocModal(true);
+              }}
+              aria-label="Quick create"
+              className="p-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm shrink-0 disabled:opacity-50"
+            >
+              <Plus className="w-5 h-5" />
+            </button>
           </div>
 
           {/* Desktop Sidebar Header */}
@@ -784,9 +822,9 @@ export default function AccountingApp() {
             </div>
           </div>
 
-          <div className={`${mobileNavOpen ? 'block' : 'hidden'} md:block space-y-4 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100`}>
+          <div className={`${mobileNavOpen ? 'block' : 'hidden'} md:block space-y-5 pt-3 md:pt-0 border-t md:border-t-0 border-slate-100`}>
             {/* Mobile Drawer Business Card */}
-            <div className="flex md:hidden items-center gap-3 px-2 py-2 bg-slate-50 rounded-xl border border-slate-200">
+            <div className="flex md:hidden items-center gap-3 px-3 py-2.5 bg-slate-50 rounded-xl border border-slate-200">
               {org?.logo_url ? (
                 // eslint-disable-next-line @next/next/no-img-element -- logo URL comes from Supabase Storage or legacy data: URL
                 <img src={org.logo_url} alt="Logo" className="w-9 h-9 rounded-lg object-contain border border-slate-200 shrink-0" />
@@ -800,48 +838,40 @@ export default function AccountingApp() {
                 <div className="text-xs text-slate-500 truncate">{sub?.plan || 'STARTER'} &middot; {org?.industry}</div>
               </div>
             </div>
-            {enabledModules.length > 0 && (
-              <div className="px-1 flex flex-wrap gap-1">
-                {enabledModules.map(mod => (
-                  <span key={mod} className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                    {mod}
-                  </span>
-                ))}
+            {/* Business Switcher */}
+            {(memberships.length > 1 || user.email?.toLowerCase() === PLATFORM_ADMIN_EMAIL) && (
+              <div className="space-y-2">
+                {memberships.length > 1 && (
+                  <select
+                    value={org?.id || ''}
+                    onChange={e => {
+                      const found = memberships.find(m => m.id === e.target.value);
+                      if (!found) return;
+                      setDocs([]);
+                      setExpenses([]);
+                      setSection('OVERVIEW');
+                      setMobileNavOpen(false);
+                      setOrg(found);
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-700"
+                  >
+                    {memberships.map(m => (
+                      <option key={m.id} value={m.id}>{m.name} ({m.role})</option>
+                    ))}
+                  </select>
+                )}
+                {user.email?.toLowerCase() === PLATFORM_ADMIN_EMAIL && (
+                  <a href="/admin" className="block w-full px-3 text-xs text-blue-600 font-semibold hover:underline">
+                    Platform Admin Console
+                  </a>
+                )}
               </div>
             )}
 
-            {/* Business Switcher */}
-            <div className="space-y-1.5">
-              {memberships.length > 1 && (
-                <select
-                  value={org?.id || ''}
-                  onChange={e => {
-                    const found = memberships.find(m => m.id === e.target.value);
-                    if (!found) return;
-                    setDocs([]);
-                    setExpenses([]);
-                    setSection('OVERVIEW');
-                    setMobileNavOpen(false);
-                    setOrg(found);
-                  }}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium text-slate-700"
-                >
-                  {memberships.map(m => (
-                    <option key={m.id} value={m.id}>{m.name} ({m.role})</option>
-                  ))}
-                </select>
-              )}
-              {user.email?.toLowerCase() === PLATFORM_ADMIN_EMAIL && (
-                <a href="/admin" className="block w-full px-2 text-xs text-blue-600 font-semibold hover:underline">
-                  Platform Admin Console
-                </a>
-              )}
-            </div>
-
             {hasTransportAddon && (
-              <div className="space-y-1">
-                <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Transport Operations
+              <div className="space-y-1.5">
+                <div className="px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Transport
                 </div>
                 <nav className="flex flex-col gap-1">
                   {transportNavItems.map(item => (
@@ -852,20 +882,20 @@ export default function AccountingApp() {
                         setMobileNavOpen(false);
                       }}
                       className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition ${
-                        item.active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                        item.active ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
                       }`}
                     >
-                      <item.icon className="w-4 h-4" /> {item.label}
+                      <item.icon className="w-4 h-4 shrink-0" /> {item.label}
                     </button>
                   ))}
                 </nav>
               </div>
             )}
 
-            <div className="space-y-1">
+            <div className="space-y-1.5">
               {hasTransportAddon && (
-                <div className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Finance &amp; Accounting
+                <div className="px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Finance
                 </div>
               )}
               <nav className="flex flex-col gap-1">
@@ -877,34 +907,54 @@ export default function AccountingApp() {
                       setMobileNavOpen(false);
                     }}
                     className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition ${
-                      section === item.id ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100'
+                      section === item.id ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
-                    <item.icon className="w-4 h-4" /> {item.label}
+                    <item.icon className="w-4 h-4 shrink-0" /> {item.label}
                   </button>
                 ))}
               </nav>
             </div>
 
-            <div className="md:hidden pt-3 border-t border-slate-200 flex items-center justify-between gap-2">
-              <span className="text-xs text-slate-500 truncate">{user.email}</span>
-              <button
-                onClick={async () => {
-                  await supabase.auth.signOut();
-                  setUser(null);
-                  setOrg(null);
-                  setDocs([]);
-                  setExpenses([]);
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-lg"
-              >
-                <LogOut className="w-4 h-4" /> Sign Out
-              </button>
+            <div className="md:hidden pt-3 border-t border-slate-200 space-y-2">
+              {enabledModules.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 px-1">
+                  {enabledModules.map(mod => (
+                    <span key={mod} className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">
+                      {mod}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center justify-between gap-2 px-1">
+                <span className="text-xs text-slate-500 truncate">{user.email}</span>
+                <button
+                  onClick={async () => {
+                    await supabase.auth.signOut();
+                    setUser(null);
+                    setOrg(null);
+                    setDocs([]);
+                    setExpenses([]);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-lg"
+                >
+                  <LogOut className="w-4 h-4" /> Sign Out
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="hidden md:block pt-4 border-t border-slate-200 space-y-2">
+        <div className="hidden md:block pt-4 border-t border-slate-200 space-y-2.5">
+          {enabledModules.length > 0 && (
+            <div className="flex flex-wrap gap-1 px-2">
+              {enabledModules.map(mod => (
+                <span key={mod} className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
+                  {mod}
+                </span>
+              ))}
+            </div>
+          )}
           <div className="text-xs text-slate-500 truncate px-2">{user.email}</div>
           <button
             onClick={async () => {
@@ -934,51 +984,57 @@ export default function AccountingApp() {
           </div>
         )}
 
-        {/* Top Bar */}
+        {/* Context-Aware Desktop / Page Header */}
         {section !== 'STATEMENTS' && (
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-            <h2 className="text-xl font-bold text-slate-900">
-              {section === 'OVERVIEW' && (hasTransportAddon ? 'Transport & Fleet Command' : 'Business Overview')}
-              {section === 'SALES' && 'Sales, Quotes, Invoices & Receipts'}
-              {section === 'EXPENSES' && 'Purchases & Operating Expenses'}
-              {section === 'CUSTOMERS' && 'Customers Directory'}
-              {section === 'CATALOGUE' && 'Products & Services'}
-              {section === 'INVENTORY' && (canManageStockControl ? 'Inventory, Variants & Suppliers' : 'Suppliers & Bills (AP)')}
-              {section === 'REPORTS' && 'Financial Statements (GL)'}
-              {section === 'TRANSPORT' && 'Transport & Fleet Operations'}
-              {section === 'INTELLIGENCE' && 'Business Intelligence & Reports'}
-              {section === 'SETTINGS' && 'Company & PDF Template Settings'}
+          <div className="hidden md:flex justify-between items-center gap-4">
+            <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+              {sectionTitle}
             </h2>
-            <div className="flex flex-wrap gap-2">
-              {hasTransportAddon && (
+            <div className="flex items-center gap-2.5">
+              {(section === 'OVERVIEW' || section === 'TRANSPORT') && hasTransportAddon && (
                 <>
                   <button
                     disabled={subscriptionLocked}
                     onClick={() => openTransportTab('TRIPS')}
-                    className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <MapPin className="w-4 h-4" /> Dispatch Trip
                   </button>
                   <button
                     disabled={subscriptionLocked}
                     onClick={() => openTransportTab('COSTS')}
-                    className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <Fuel className="w-4 h-4" /> Log Fuel / Cost
+                    <Fuel className="w-4 h-4 text-amber-600" /> Log Fuel / Cost
                   </button>
                 </>
               )}
-              <button disabled={subscriptionLocked} onClick={() => setShowDocModal(true)} className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
-                <PlusCircle className="w-4 h-4" /> New Quote / Invoice
-              </button>
-              {!hasTransportAddon && (
-                <button disabled={subscriptionLocked} onClick={() => setShowExpenseModal(true)} className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
+              {(section === 'SALES' || (section === 'OVERVIEW' && !hasTransportAddon)) && (
+                <button
+                  disabled={subscriptionLocked}
+                  onClick={() => setShowDocModal(true)}
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <PlusCircle className="w-4 h-4" /> New Quote / Invoice
+                </button>
+              )}
+              {section === 'EXPENSES' && !hasTransportAddon && (
+                <button
+                  disabled={subscriptionLocked}
+                  onClick={() => setShowExpenseModal(true)}
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
                   <ReceiptText className="w-4 h-4" /> Log Expense
                 </button>
               )}
-              <button onClick={exportTaxCSV} className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold">
-                <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Export CSV
-              </button>
+              {(section === 'SALES' || section === 'EXPENSES') && (
+                <button
+                  onClick={exportTaxCSV}
+                  className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold transition"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Export CSV
+                </button>
+              )}
             </div>
           </div>
         )}
