@@ -29,6 +29,7 @@ import SettingsForm from '@/components/SettingsForm';
 import IntelligenceSection from '@/components/IntelligenceSection';
 import InventorySection from '@/components/InventorySection';
 import ReportsSection from '@/components/ReportsSection';
+import StatementsSection from '@/components/StatementsSection';
 import TransportSection, {
   type Driver,
   type TransportTab,
@@ -66,6 +67,7 @@ import {
 type Section =
   | 'OVERVIEW'
   | 'SALES'
+  | 'STATEMENTS'
   | 'EXPENSES'
   | 'CUSTOMERS'
   | 'CATALOGUE'
@@ -691,6 +693,7 @@ export default function AccountingApp() {
   const accountingNavItems: NavItem[] = [
     ...(!hasTransportAddon ? [{ id: 'OVERVIEW' as Section, label: 'Overview', icon: LayoutDashboard }] : []),
     { id: 'SALES', label: 'Sales & Invoices', icon: FileText },
+    ...(canViewGlStatements ? [{ id: 'STATEMENTS' as Section, label: 'Statements', icon: FileSpreadsheet }] : []),
     { id: 'EXPENSES', label: 'Expenses', icon: ReceiptText },
     { id: 'CUSTOMERS', label: 'Customers', icon: Users },
     ...(!hasTransportAddon ? [{ id: 'CATALOGUE' as Section, label: 'Products & Services', icon: Package }] : []),
@@ -936,6 +939,7 @@ export default function AccountingApp() {
           <h2 className="text-xl font-bold text-slate-900">
             {section === 'OVERVIEW' && (hasTransportAddon ? 'Transport & Fleet Command' : 'Business Overview')}
             {section === 'SALES' && 'Sales, Quotes, Invoices & Receipts'}
+            {section === 'STATEMENTS' && 'Customer Statements'}
             {section === 'EXPENSES' && 'Purchases & Operating Expenses'}
             {section === 'CUSTOMERS' && 'Customers Directory'}
             {section === 'CATALOGUE' && 'Products & Services'}
@@ -1237,6 +1241,14 @@ export default function AccountingApp() {
 
         {section === 'REPORTS' && org && (
           <ReportsSection orgId={org.id} currency={currency} />
+        )}
+
+        {section === 'STATEMENTS' && org && canViewGlStatements && (
+          <StatementsSection
+            customers={customers}
+            documents={docs}
+            org={org}
+          />
         )}
 
         {hasTransportAddon && section === 'TRANSPORT' && org && (
