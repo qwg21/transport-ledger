@@ -935,52 +935,53 @@ export default function AccountingApp() {
         )}
 
         {/* Top Bar */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-          <h2 className="text-xl font-bold text-slate-900">
-            {section === 'OVERVIEW' && (hasTransportAddon ? 'Transport & Fleet Command' : 'Business Overview')}
-            {section === 'SALES' && 'Sales, Quotes, Invoices & Receipts'}
-            {section === 'STATEMENTS' && 'Customer Statements'}
-            {section === 'EXPENSES' && 'Purchases & Operating Expenses'}
-            {section === 'CUSTOMERS' && 'Customers Directory'}
-            {section === 'CATALOGUE' && 'Products & Services'}
-            {section === 'INVENTORY' && (canManageStockControl ? 'Inventory, Variants & Suppliers' : 'Suppliers & Bills (AP)')}
-            {section === 'REPORTS' && 'Financial Statements (GL)'}
-            {section === 'TRANSPORT' && 'Transport & Fleet Operations'}
-            {section === 'INTELLIGENCE' && 'Business Intelligence & Reports'}
-            {section === 'SETTINGS' && 'Company & PDF Template Settings'}
-          </h2>
-          <div className="flex flex-wrap gap-2">
-            {hasTransportAddon && (
-              <>
-                <button
-                  disabled={subscriptionLocked}
-                  onClick={() => openTransportTab('TRIPS')}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <MapPin className="w-4 h-4" /> Dispatch Trip
-                </button>
-                <button
-                  disabled={subscriptionLocked}
-                  onClick={() => openTransportTab('COSTS')}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Fuel className="w-4 h-4" /> Log Fuel / Cost
-                </button>
-              </>
-            )}
-            <button disabled={subscriptionLocked} onClick={() => setShowDocModal(true)} className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
-              <PlusCircle className="w-4 h-4" /> New Quote / Invoice
-            </button>
-            {!hasTransportAddon && (
-              <button disabled={subscriptionLocked} onClick={() => setShowExpenseModal(true)} className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
-                <ReceiptText className="w-4 h-4" /> Log Expense
+        {section !== 'STATEMENTS' && (
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+            <h2 className="text-xl font-bold text-slate-900">
+              {section === 'OVERVIEW' && (hasTransportAddon ? 'Transport & Fleet Command' : 'Business Overview')}
+              {section === 'SALES' && 'Sales, Quotes, Invoices & Receipts'}
+              {section === 'EXPENSES' && 'Purchases & Operating Expenses'}
+              {section === 'CUSTOMERS' && 'Customers Directory'}
+              {section === 'CATALOGUE' && 'Products & Services'}
+              {section === 'INVENTORY' && (canManageStockControl ? 'Inventory, Variants & Suppliers' : 'Suppliers & Bills (AP)')}
+              {section === 'REPORTS' && 'Financial Statements (GL)'}
+              {section === 'TRANSPORT' && 'Transport & Fleet Operations'}
+              {section === 'INTELLIGENCE' && 'Business Intelligence & Reports'}
+              {section === 'SETTINGS' && 'Company & PDF Template Settings'}
+            </h2>
+            <div className="flex flex-wrap gap-2">
+              {hasTransportAddon && (
+                <>
+                  <button
+                    disabled={subscriptionLocked}
+                    onClick={() => openTransportTab('TRIPS')}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <MapPin className="w-4 h-4" /> Dispatch Trip
+                  </button>
+                  <button
+                    disabled={subscriptionLocked}
+                    onClick={() => openTransportTab('COSTS')}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Fuel className="w-4 h-4" /> Log Fuel / Cost
+                  </button>
+                </>
+              )}
+              <button disabled={subscriptionLocked} onClick={() => setShowDocModal(true)} className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
+                <PlusCircle className="w-4 h-4" /> New Quote / Invoice
               </button>
-            )}
-            <button onClick={exportTaxCSV} className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold">
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Export CSV
-            </button>
+              {!hasTransportAddon && (
+                <button disabled={subscriptionLocked} onClick={() => setShowExpenseModal(true)} className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed">
+                  <ReceiptText className="w-4 h-4" /> Log Expense
+                </button>
+              )}
+              <button onClick={exportTaxCSV} className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold">
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Export CSV
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Search & Date Filter */}
         {((!hasTransportAddon && section === 'OVERVIEW') || section === 'SALES' || section === 'EXPENSES') && (
