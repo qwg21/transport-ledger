@@ -30,6 +30,7 @@ import IntelligenceSection from '@/components/IntelligenceSection';
 import InventorySection from '@/components/InventorySection';
 import ReportsSection from '@/components/ReportsSection';
 import StatementsSection from '@/components/StatementsSection';
+import RentalsSection from '@/components/rentalssection';
 import TransportSection, {
   type Driver,
   type TransportTab,
@@ -62,7 +63,8 @@ import {
   Menu,
   MapPin,
   Fuel,
-  BarChart3
+  BarChart3,
+  Home
 } from 'lucide-react';
 
 type Section =
@@ -75,6 +77,7 @@ type Section =
   | 'INVENTORY'
   | 'REPORTS'
   | 'TRANSPORT'
+  | 'RENTALS'
   | 'INTELLIGENCE'
   | 'SETTINGS';
 
@@ -383,6 +386,7 @@ export default function AccountingApp() {
   const canViewGlStatements = hasCapability(entitlements, 'core.gl_statements');
   const enabledModules = Array.from(entitlements.modules);
   const hasTransportAddon = hasCapability(entitlements, 'transport.trips');
+  const hasRentalsAddon = hasCapability(entitlements, 'rentals.properties');
 
   // Transport Command metrics (active only when hasTransportAddon is true)
   const activeVehiclesCount = vehicles.filter(v => v.status === 'ACTIVE').length;
@@ -693,6 +697,7 @@ export default function AccountingApp() {
   type NavItem = { id: Section; label: string; icon: typeof LayoutDashboard };
   const accountingNavItems: NavItem[] = [
     ...(!hasTransportAddon ? [{ id: 'OVERVIEW' as Section, label: 'Overview', icon: LayoutDashboard }] : []),
+    ...(hasRentalsAddon ? [{ id: 'RENTALS' as Section, label: 'Rentals', icon: Home }] : []),
     { id: 'SALES', label: 'Sales & Invoices', icon: FileText },
     ...(canViewGlStatements ? [{ id: 'STATEMENTS' as Section, label: 'Statements', icon: FileSpreadsheet }] : []),
     { id: 'EXPENSES', label: 'Expenses', icon: ReceiptText },
@@ -768,9 +773,11 @@ export default function AccountingApp() {
                     ? 'Financial Statements'
                     : section === 'TRANSPORT'
                       ? 'Transport Operations'
-                      : section === 'INTELLIGENCE'
-                        ? 'Business Intelligence'
-                        : 'Settings';
+                      : section === 'RENTALS'
+                        ? 'Rentals'
+                        : section === 'INTELLIGENCE'
+                          ? 'Business Intelligence'
+                          : 'Settings';
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col md:flex-row font-sans">
@@ -1305,6 +1312,16 @@ export default function AccountingApp() {
             customers={customers}
             documents={docs}
             org={org}
+          />
+        )}
+
+        {section === 'RENTALS' && org && hasRentalsAddon && (
+          <RentalsSection
+            orgId={org.id}
+            currency={org.currency || 'KES'}
+            customers={customers}
+            isReadOnly={subscriptionLocked}
+            onDataChanged={() => loadOrgData(org.id)}
           />
         )}
 

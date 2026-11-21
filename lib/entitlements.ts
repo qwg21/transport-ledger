@@ -2,6 +2,7 @@ import type { PlanTier, Subscription } from '@/lib/types';
 
 export type ModuleId =
   | 'TRANSPORT'
+  | 'RENTALS'
   | 'WAREHOUSE'
   | 'PROCUREMENT'
   | 'MANUFACTURING'
@@ -32,6 +33,11 @@ export type CapabilityKey =
   | 'transport.trips'
   | 'transport.fuel_maintenance'
   | 'transport.trip_profitability'
+  | 'rentals.properties'
+  | 'rentals.tenancies'
+  | 'rentals.billing'
+  | 'rentals.payments'
+  | 'rentals.owners_remittances'
   | 'warehouse.operations'
   | 'procurement.advanced'
   | 'manufacturing.operations'
@@ -58,6 +64,7 @@ const TIER_RANK: Record<PlanTier, number> = {
 
 export const MODULE_MIN_CORE: Record<ModuleId, PlanTier> = {
   TRANSPORT: 'STARTER',
+  RENTALS: 'STARTER',
   PAYROLL: 'STARTER',
   CRM: 'STARTER',
   WAREHOUSE: 'GROWTH',
@@ -127,6 +134,13 @@ export function resolveEntitlements(
     entitled.add('transport.fuel_maintenance');
     entitled.add('transport.trip_profitability');
   }
+  if (modules.has('RENTALS') && rank >= TIER_RANK[MODULE_MIN_CORE.RENTALS]) {
+    entitled.add('rentals.properties');
+    entitled.add('rentals.tenancies');
+    entitled.add('rentals.billing');
+    entitled.add('rentals.payments');
+    entitled.add('rentals.owners_remittances');
+  }
   if (modules.has('WAREHOUSE') && rank >= TIER_RANK[MODULE_MIN_CORE.WAREHOUSE]) {
     entitled.add('warehouse.operations');
   }
@@ -146,7 +160,7 @@ export function resolveEntitlements(
   // Enabled state: decouple non-stock specialist orgs from inheriting retail SKU/stock screens
   const enabled = new Set<CapabilityKey>(entitled);
   const isNonStockSpecialistOnly =
-    (modules.has('TRANSPORT') || modules.has('PAYROLL') || modules.has('CRM')) &&
+    (modules.has('TRANSPORT') || modules.has('RENTALS') || modules.has('PAYROLL') || modules.has('CRM')) &&
     !modules.has('WAREHOUSE') &&
     !modules.has('MANUFACTURING');
 

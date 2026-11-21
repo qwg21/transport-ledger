@@ -17,6 +17,31 @@ test('Starter + Transport gets transport & trip profitability without retail inv
   assert.equal(hasCapability(ent, 'intelligence.bi'), false);
 });
 
+test('Starter + Rentals gets rental capabilities without retail inventory', () => {
+  const ent = resolveEntitlements(
+    { plan: 'STARTER', status: 'ACTIVE', current_period_end: activePeriod, enabled_modules: ['RENTALS'] },
+    'owner',
+    '2026-11-19'
+  );
+  assert.equal(hasCapability(ent, 'rentals.properties'), true);
+  assert.equal(hasCapability(ent, 'rentals.tenancies'), true);
+  assert.equal(hasCapability(ent, 'rentals.billing'), true);
+  assert.equal(hasCapability(ent, 'rentals.payments'), true);
+  assert.equal(hasCapability(ent, 'rentals.owners_remittances'), true);
+  assert.equal(hasCapability(ent, 'inventory.stock_control'), false);
+});
+
+test('Starter + RENTALS unlocks rental operations without inheriting retail SKU/stock screens', () => {
+  const ent = resolveEntitlements(
+    { plan: 'STARTER', status: 'ACTIVE', current_period_end: '2099-12-31', enabled_modules: ['RENTALS'] },
+    'owner',
+    '2026-11-22'
+  );
+  assert.equal(hasCapability(ent, 'rentals.properties'), true);
+  assert.equal(hasCapability(ent, 'rentals.billing'), true);
+  assert.equal(hasCapability(ent, 'inventory.stock_control'), false);
+});
+
 test('Intelligence + Transport gets BI & transport without inheriting retail SKU/stock screens', () => {
   const ent = resolveEntitlements(
     { plan: 'INTELLIGENCE', status: 'ACTIVE', current_period_end: activePeriod, enabled_modules: ['TRANSPORT'] },
