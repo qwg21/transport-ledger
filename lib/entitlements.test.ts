@@ -27,7 +27,8 @@ test('Starter + Rentals gets rental capabilities without retail inventory', () =
   assert.equal(hasCapability(ent, 'rentals.tenancies'), true);
   assert.equal(hasCapability(ent, 'rentals.billing'), true);
   assert.equal(hasCapability(ent, 'rentals.payments'), true);
-  assert.equal(hasCapability(ent, 'rentals.owners_remittances'), true);
+  assert.equal(hasCapability(ent, 'rentals.caretakers'), true);
+  assert.equal(hasCapability(ent, 'rentals.owners_remittances'), false);
   assert.equal(hasCapability(ent, 'inventory.stock_control'), false);
 });
 
@@ -40,6 +41,45 @@ test('Starter + RENTALS unlocks rental operations without inheriting retail SKU/
   assert.equal(hasCapability(ent, 'rentals.properties'), true);
   assert.equal(hasCapability(ent, 'rentals.billing'), true);
   assert.equal(hasCapability(ent, 'inventory.stock_control'), false);
+});
+
+test('Starter + RENTALS excludes agency owner remittances; Growth + RENTALS unlocks them', () => {
+  const starter = resolveEntitlements(
+    { plan: 'STARTER', status: 'ACTIVE', current_period_end: '2099-12-31', enabled_modules: ['RENTALS'] },
+    'owner',
+    '2026-11-22'
+  );
+  assert.equal(hasCapability(starter, 'rentals.properties'), true);
+  assert.equal(hasCapability(starter, 'rentals.owners_remittances'), false);
+
+  const growth = resolveEntitlements(
+    { plan: 'GROWTH', status: 'ACTIVE', current_period_end: '2099-12-31', enabled_modules: ['RENTALS'] },
+    'owner',
+    '2026-11-22'
+  );
+  assert.equal(hasCapability(growth, 'rentals.owners_remittances'), true);
+});
+
+test('Starter + RENTALS grants caretaker operations but restricts caretaker role permissions', () => {
+  const owner = resolveEntitlements(
+    { plan: 'STARTER', status: 'ACTIVE', current_period_end: '2099-12-31', enabled_modules: ['RENTALS'] },
+    'owner',
+    '2026-11-23'
+  );
+  assert.equal(hasCapability(owner, 'rentals.caretakers'), true);
+
+  const caretaker = resolveEntitlements(
+    { plan: 'STARTER', status: 'ACTIVE', current_period_end: '2099-12-31', enabled_modules: ['RENTALS'] },
+    'caretaker',
+    '2026-11-23'
+  );
+  assert.equal(hasCapability(caretaker, 'rentals.properties'), true);
+  assert.equal(hasCapability(caretaker, 'rentals.tenancies'), true);
+  assert.equal(hasCapability(caretaker, 'rentals.billing'), true);
+  assert.equal(hasCapability(caretaker, 'rentals.payments'), false);
+  assert.equal(hasCapability(caretaker, 'rentals.owners_remittances'), false);
+  assert.equal(hasCapability(caretaker, 'core.gl_statements'), false);
+  assert.equal(hasCapability(caretaker, 'core.team_roles'), false);
 });
 
 test('Intelligence + Transport gets BI & transport without inheriting retail SKU/stock screens', () => {

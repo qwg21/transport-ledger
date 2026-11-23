@@ -1,9 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { buildDocNumber, explainDbError, todayLocal } from '@/lib/documents';
-import type { Customer, DocType, LineItem, Product } from '@/lib/types';
+import {
+  deductStockForDocument,
+  getStockShortfalls,
+  topUpStockShortfalls,
+  type StockShortfall
+} from '@/lib/inventorySync';
+import type { Customer, DocType, LineItem, Product, ProductVariant } from '@/lib/types';
 import { PlusCircle, X } from 'lucide-react';
 
 const EMPTY_LINE_ITEM: LineItem = { product_id: null, description: '', quantity: 1, unit_price: 0 };
@@ -16,6 +22,11 @@ const PAYMENT_METHODS = [
   'Cheque',
   'Online (PayPal / Stripe)'
 ];
+
+type ShortfallDraft = StockShortfall & {
+  receiveQty: string;
+  receiveCost: string;
+};
 
 type Props = {
   orgId: string;
@@ -49,6 +60,45 @@ export default function DocumentModal({
   const [lineItems, setLineItems] = useState<LineItem[]>([{ ...EMPTY_LINE_ITEM }]);
   const [payMethod, setPayMethod] = useState('M-PESA');
   const [paymentRef, setPaymentRef] = useState('');
+  const [variants, setVariants] = useState<ProductVariant[]>([]);
+  const [shortfalls, setShortfalls] = useState<ShortfallDraft[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    supabase
+      .from('product_variants')
+      .select('*')
+      .eq('org_id', orgId)
+      .eq('is_active', true)
+      .order('sku')
+      .then(({ data }) => {
+        if (active && data) setVariants(data as ProductVariant[]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [orgId]);
+
+  const variantsByProduct = useMemo(() => {
+    const map = new Map<string, ProductVariant[]>();
+    for (const v of variants) {
+      const list = map.get(v.product_id) || [];
+      list.push(v);
+      map.set(v.product_id, list);
+    }
+    return map;
+  }, [variants]);
+
+  const getProductStockInfo = (productId: string | null) => {
+    if (!productId) return { isTracked: false, available: Infinity };
+    const prod = products.find(p => p.id === productId);
+    const prodVars = variantsByProduct.get(productId) || [];
+    if (!prod || prod.item_type !== 'PRODUCT' || prodVars.length === 0) {
+      return { isTracked: false, available: Infinity };
+    }
+    const available = prodVars.reduce((sum, v) => sum + Number(v.stock_qty || 0), 0);
+    return { isTracked: true, available };
+  };
 
   const matchedCustomers =
     isGrowthPlus && showCustomerDropdown && !selectedCustomerId
@@ -71,11 +121,13 @@ export default function DocumentModal({
     const p = products.find(x => x.id === productId);
     if (!p) return;
 
+    setShortfalls([]);
     setLineItems(prev => {
       const existingIdx = prev.findIndex(li => li.product_id === p.id);
       if (existingIdx !== -1) {
+        const nextQty = Number(prev[existingIdx].quantity || 0) + 1;
         return prev.map((li, i) =>
-          i === existingIdx ? { ...li, quantity: Number(li.quantity || 0) + 1 } : li
+          i === existingIdx ? { ...li, quantity: nextQty } : li
         );
       }
 
@@ -94,14 +146,17 @@ export default function DocumentModal({
   };
 
   const updateLineItem = (idx: number, patch: Partial<LineItem>) => {
+    setShortfalls([]);
     setLineItems(prev => prev.map((li, i) => (i === idx ? { ...li, ...patch } : li)));
   };
 
   const addEmptyLineItem = () => {
+    setShortfalls([]);
     setLineItems(prev => [...prev, { ...EMPTY_LINE_ITEM }]);
   };
 
   const removeLineItem = (idx: number) => {
+    setShortfalls([]);
     setLineItems(prev => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
   };
 
@@ -119,8 +174,59 @@ export default function DocumentModal({
       return;
     }
 
+    // Check for stock shortfalls on Invoices / Receipts before creating the document
+    if (docType !== 'QUOTE' && shortfalls.length === 0) {
+      const { shortfalls: gaps, error: gapErr } = await getStockShortfalls(orgId, validItems);
+      if (gapErr) {
+        alert(gapErr);
+        return;
+      }
+      if (gaps.length > 0) {
+        setShortfalls(
+          gaps.map(g => ({
+            ...g,
+            receiveQty: String(g.shortfall),
+            receiveCost: String(g.defaultCostPrice || 0)
+          }))
+        );
+        return;
+      }
+    }
+
+    // Validate confirmed top-up quantities meet at least the exact shortfall
+    if (docType !== 'QUOTE' && shortfalls.length > 0) {
+      for (const s of shortfalls) {
+        const addQty = Number(s.receiveQty || 0);
+        if (isNaN(addQty) || addQty < s.shortfall) {
+          alert(`Add at least ${s.shortfall} unit(s) for "${s.productName}" to fulfill this order.`);
+          return;
+        }
+      }
+    }
+
     setIsSubmitting(true);
     try {
+      // 1. Receive top-up / restock units into inventory first if confirmed
+      if (docType !== 'QUOTE' && shortfalls.length > 0) {
+        const topUpRes = await topUpStockShortfalls(
+          orgId,
+          shortfalls.map(s => ({
+            variantId: s.defaultVariantId,
+            addQty: Number(s.receiveQty || 0),
+            unitCost: Number(s.receiveCost || 0),
+            note:
+              Number(s.receiveQty) === s.shortfall
+                ? `Order top-up (+${s.shortfall}) to fulfill order`
+                : `Restock (+${s.receiveQty}) during order`
+          }))
+        );
+        if (!topUpRes.ok) {
+          alert(`Stock restock failed: ${topUpRes.error}`);
+          return;
+        }
+        setShortfalls([]);
+      }
+
       const effectiveDate = issueDate || todayLocal();
       const yearNum = parseInt(effectiveDate.split('-')[0], 10);
 
@@ -218,6 +324,11 @@ export default function DocumentModal({
       const { error: itemsErr } = await supabase.from('document_items').insert(itemRows);
       if (itemsErr) {
         alert(`Document saved, but line items failed: ${itemsErr.message}`);
+      } else if (docType !== 'QUOTE') {
+        const deductRes = await deductStockForDocument(orgId, newDoc.id, docNumber);
+        if (!deductRes.ok) {
+          alert(`Document saved, but inventory deduction failed: ${deductRes.error}`);
+        }
       }
 
       onCreated();
@@ -233,7 +344,14 @@ export default function DocumentModal({
         <h3 className="text-lg font-bold">New Quote / Invoice / Receipt</h3>
         <form onSubmit={handleCreateDocument} className="space-y-3">
           <div className="grid grid-cols-2 gap-2">
-            <select value={docType} onChange={e => setDocType(e.target.value as DocType)} className="border border-slate-300 rounded-xl p-2.5 text-sm">
+            <select
+              value={docType}
+              onChange={e => {
+                setDocType(e.target.value as DocType);
+                setShortfalls([]);
+              }}
+              className="border border-slate-300 rounded-xl p-2.5 text-sm"
+            >
               <option value="QUOTE">Quotation (QT)</option>
               <option value="INVOICE">Invoice (INV)</option>
               <option value="RECEIPT">Official Receipt (RCT)</option>
@@ -302,11 +420,19 @@ export default function DocumentModal({
               className="w-full border border-blue-200 rounded-xl p-2.5 text-sm bg-blue-50 text-blue-900 font-medium"
             >
               <option value="">+ Quick Add from Catalogue (click to add item)...</option>
-              {products.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({currency} {Number(p.unit_price).toLocaleString()})
-                </option>
-              ))}
+              {products.map(p => {
+                const { isTracked, available } = getProductStockInfo(p.id);
+                const stockLabel = !isTracked
+                  ? ''
+                  : available <= 0
+                  ? ' — Out of Stock (top-up on save)'
+                  : ` — ${available} in stock`;
+                return (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({currency} {Number(p.unit_price).toLocaleString()}){stockLabel}
+                  </option>
+                );
+              })}
             </select>
           )}
 
@@ -374,10 +500,124 @@ export default function DocumentModal({
             </div>
           )}
 
+          {shortfalls.length > 0 && (
+            <div className="border border-amber-300 bg-amber-50 rounded-xl p-3.5 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-bold text-amber-900">
+                  Stock Shortfall — Top Up to Fulfill or Restock
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShortfalls([])}
+                  className="text-slate-600 hover:underline font-semibold"
+                >
+                  Dismiss
+                </button>
+              </div>
+              <p className="text-amber-800">
+                Existing stock will be used first. Add the exact shortfall to match this order, or enter a higher quantity to restock extra units:
+              </p>
+              {shortfalls.map((s, idx) => {
+                const addNum = Number(s.receiveQty || 0);
+                const endingStock = Math.max(0, s.available + addNum - s.requested);
+                return (
+                  <div key={s.productId} className="bg-white border border-amber-200 rounded-lg p-2.5 space-y-2">
+                    <div className="flex flex-wrap justify-between gap-1 font-semibold text-slate-900">
+                      <span>{s.productName}</span>
+                      <span className="text-amber-700">
+                        On hand: {s.available} &middot; Order: {s.requested} &middot; Short: {s.shortfall}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setShortfalls(prev =>
+                            prev.map((row, i) =>
+                              i === idx ? { ...row, receiveQty: String(s.shortfall) } : row
+                            )
+                          )
+                        }
+                        className={`px-2 py-1 rounded text-[11px] font-semibold border ${
+                          addNum === s.shortfall
+                            ? 'bg-amber-600 text-white border-amber-600'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        Exact Match (+{s.shortfall})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setShortfalls(prev =>
+                            prev.map((row, i) =>
+                              i === idx ? { ...row, receiveQty: String(s.shortfall + 10) } : row
+                            )
+                          )
+                        }
+                        className={`px-2 py-1 rounded text-[11px] font-semibold border ${
+                          addNum === s.shortfall + 10
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        Full Restock (+{s.shortfall + 10})
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[11px] text-slate-500">Qty to Add (min {s.shortfall})</label>
+                        <input
+                          type="number"
+                          min={s.shortfall}
+                          step="1"
+                          required
+                          value={s.receiveQty}
+                          onChange={e =>
+                            setShortfalls(prev =>
+                              prev.map((row, i) =>
+                                i === idx ? { ...row, receiveQty: e.target.value } : row
+                              )
+                            )
+                          }
+                          className="w-full border border-slate-300 rounded-lg p-1.5 text-xs font-bold mt-0.5"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-slate-500">Unit Cost ({currency})</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={s.receiveCost}
+                          onChange={e =>
+                            setShortfalls(prev =>
+                              prev.map((row, i) =>
+                                i === idx ? { ...row, receiveCost: e.target.value } : row
+                              )
+                            )
+                          }
+                          className="w-full border border-slate-300 rounded-lg p-1.5 text-xs mt-0.5"
+                        />
+                      </div>
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      Remaining stock after this order: <strong className="text-slate-800">{endingStock}</strong>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2.5 bg-slate-100 rounded-xl text-sm font-semibold">Cancel</button>
             <button type="submit" disabled={isSubmitting} className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50">
-              {isSubmitting ? 'Saving...' : `Save (${currency} ${computedDocTotal.toLocaleString()})`}
+              {isSubmitting
+                ? 'Saving...'
+                : shortfalls.length > 0
+                ? `Receive Stock & Save (${currency} ${computedDocTotal.toLocaleString()})`
+                : `Save (${currency} ${computedDocTotal.toLocaleString()})`}
             </button>
           </div>
         </form>

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { explainDbError, todayLocal } from '@/lib/documents';
 import type { Product, ProductVariant, StockMovement, Supplier, SupplierBill } from '@/lib/types';
-import { PackageCheck, Truck, ArrowUpDown, AlertTriangle, ReceiptText, CreditCard } from 'lucide-react';
+import { PackageCheck, Truck, ArrowUpDown, AlertTriangle, ReceiptText, CreditCard, PackagePlus } from 'lucide-react';
 
 type InventoryTab = 'VARIANTS' | 'MOVEMENTS' | 'BILLS' | 'SUPPLIERS';
 
@@ -48,6 +48,12 @@ export default function InventorySection({
   const [moveQty, setMoveQty] = useState('1');
   const [moveCost, setMoveCost] = useState('');
   const [moveNotes, setMoveNotes] = useState('');
+
+  // Quick restock modal state
+  const [restockVariant, setRestockVariant] = useState<ProductVariant | null>(null);
+  const [restockQty, setRestockQty] = useState('10');
+  const [restockCost, setRestockCost] = useState('');
+  const [isRestocking, setIsRestocking] = useState(false);
 
   // Supplier form
   const [supName, setSupName] = useState('');
@@ -173,6 +179,31 @@ export default function InventorySection({
     loadData();
   };
 
+  const handleQuickRestock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!restockVariant || isRestocking) return;
+    setErrorMsg(null);
+    setIsRestocking(true);
+    try {
+      const { error } = await supabase.from('stock_movements').insert({
+        org_id: orgId,
+        variant_id: restockVariant.id,
+        movement_type: 'GRN_RECEIPT',
+        quantity: Number(restockQty),
+        unit_cost: Number(restockCost || restockVariant.cost_price || 0),
+        notes: 'Quick restock from Inventory'
+      });
+      if (error) {
+        setErrorMsg(error.message);
+        return;
+      }
+      setRestockVariant(null);
+      loadData();
+    } finally {
+      setIsRestocking(false);
+    }
+  };
+
   const handleAddSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -296,7 +327,7 @@ export default function InventorySection({
               <p className="text-lg font-bold text-blue-600 mt-1">{currency} {totalStockValue.toLocaleString()}</p>
             </div>
             <div className="bg-white border border-slate-200 rounded-2xl p-4">
-              <p className="text-xs text-slate-500">Low-Stock Alerts</p>
+              <p className="text-xs text-slate-500">Low / Out-of-Stock</p>
               <p className={`text-2xl font-bold mt-1 ${lowStockCount > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
                 {lowStockCount}
               </p>
@@ -393,28 +424,58 @@ export default function InventorySection({
                   <th className="py-2 px-2">Sell Price</th>
                   <th className="py-2 px-2">On Hand</th>
                   <th className="py-2 px-2">Valuation</th>
+                  <th className="py-2 px-2 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {variants.map(v => {
-                  const low = Number(v.stock_qty) <= Number(v.reorder_level);
+                  const qty = Number(v.stock_qty);
+                  const outOfStock = qty <= 0;
+                  const low = qty > 0 && qty <= Number(v.reorder_level);
                   return (
-                    <tr key={v.id}>
+                    <tr key={v.id} className={outOfStock ? 'bg-rose-50/40' : ''}>
                       <td className="py-2.5 px-2 font-mono font-bold text-slate-900">{v.sku}</td>
                       <td className="py-2.5 px-2">{v.variant_name}</td>
                       <td className="py-2.5 px-2">{currency} {Number(v.cost_price).toLocaleString()}</td>
                       <td className="py-2.5 px-2 font-semibold">{currency} {Number(v.selling_price).toLocaleString()}</td>
                       <td className="py-2.5 px-2">
-                        <span className={`inline-flex items-center gap-1 font-bold ${low ? 'text-amber-600' : 'text-emerald-700'}`}>
-                          {low && <AlertTriangle className="w-3.5 h-3.5" />} {Number(v.stock_qty)}
-                        </span>
+                        {outOfStock ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 font-bold">
+                            <AlertTriangle className="w-3 h-3" /> Out of Stock (0)
+                          </span>
+                        ) : low ? (
+                          <span className="inline-flex items-center gap-1 font-bold text-amber-600">
+                            <AlertTriangle className="w-3.5 h-3.5" /> {qty} (Low)
+                          </span>
+                        ) : (
+                          <span className="font-bold text-emerald-700">{qty}</span>
+                        )}
                       </td>
-                      <td className="py-2.5 px-2 font-semibold text-blue-700">{currency} {(Number(v.stock_qty) * Number(v.cost_price)).toLocaleString()}</td>
+                      <td className="py-2.5 px-2 font-semibold text-blue-700">{currency} {(qty * Number(v.cost_price)).toLocaleString()}</td>
+                      <td className="py-2.5 px-2 text-right">
+                        {isGrowthPlus && !isReadOnly && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRestockVariant(v);
+                              setRestockQty('10');
+                              setRestockCost(String(v.cost_price || 0));
+                            }}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-semibold ${
+                              outOfStock
+                                ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                                : 'bg-slate-100 hover:bg-slate-200 text-slate-800'
+                            }`}
+                          >
+                            <PackagePlus className="w-3.5 h-3.5" /> Restock
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
                 {variants.length === 0 && (
-                  <tr><td colSpan={6} className="py-4 text-slate-400">No SKU variants created yet.</td></tr>
+                  <tr><td colSpan={7} className="py-4 text-slate-400">No SKU variants created yet.</td></tr>
                 )}
               </tbody>
             </table>
@@ -592,6 +653,46 @@ export default function InventorySection({
               </div>
             ))}
             {suppliers.length === 0 && <p className="text-slate-400">No suppliers added yet.</p>}
+          </div>
+        </div>
+      )}
+
+      {/* QUICK RESTOCK MODAL */}
+      {restockVariant && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-3 shadow-xl">
+            <h3 className="text-base font-bold text-slate-900">Restock {restockVariant.sku} ({restockVariant.variant_name})</h3>
+            <form onSubmit={handleQuickRestock} className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-600">Quantity Received</label>
+                <input
+                  type="number"
+                  required
+                  min="1"
+                  step="1"
+                  value={restockQty}
+                  onChange={e => setRestockQty(e.target.value)}
+                  className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1 font-bold"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-600">Unit Cost ({currency})</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={restockCost}
+                  onChange={e => setRestockCost(e.target.value)}
+                  className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1"
+                />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setRestockVariant(null)} className="flex-1 py-2.5 bg-slate-100 rounded-xl text-sm font-semibold">Cancel</button>
+                <button type="submit" disabled={isRestocking} className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50">
+                  {isRestocking ? 'Restocking...' : 'Confirm Restock'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

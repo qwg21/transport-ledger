@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 const PLATFORM_ADMIN_EMAIL = 'quentinwg2015@gmail.com';
 const VALID_MODULES = new Set([
   'TRANSPORT',
+  'RENTALS',
   'MANUFACTURING',
   'WAREHOUSE',
   'PAYROLL',

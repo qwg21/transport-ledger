@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, useDeferredValue } from 'react';
 import { supabase } from '@/lib/supabase';
 import { buildPdfDocument } from '@/lib/pdf';
+import { ui } from '@/lib/ui';
 import {
   applyPaymentTotals,
   buildDocNumber,
@@ -12,6 +13,13 @@ import {
   todayLocal
 } from '@/lib/documents';
 import { hasCapability, resolveEntitlements } from '@/lib/entitlements';
+import {
+  deductStockForDocument,
+  getStockShortfalls,
+  restoreStockForVoidedDocument,
+  topUpStockShortfalls,
+  type StockShortfall
+} from '@/lib/inventorySync';
 import type {
   Customer,
   DocumentRecord,
@@ -30,7 +38,7 @@ import IntelligenceSection from '@/components/IntelligenceSection';
 import InventorySection from '@/components/InventorySection';
 import ReportsSection from '@/components/ReportsSection';
 import StatementsSection from '@/components/StatementsSection';
-import RentalsSection from '@/components/rentalssection';
+import RentalsSection from '@/components/RentalsSection';
 import TransportSection, {
   type Driver,
   type TransportTab,
@@ -64,7 +72,11 @@ import {
   MapPin,
   Fuel,
   BarChart3,
-  Home
+  Home,
+  LayoutGrid,
+  Landmark,
+  Wallet,
+  Wrench
 } from 'lucide-react';
 
 type Section =
@@ -78,6 +90,12 @@ type Section =
   | 'REPORTS'
   | 'TRANSPORT'
   | 'RENTALS'
+  | 'RENTALS_OVERVIEW'
+  | 'RENTALS_PROPERTIES'
+  | 'RENTALS_TENANCIES'
+  | 'RENTALS_COLLECTIONS'
+  | 'RENTALS_MAINTENANCE'
+  | 'RENTALS_OWNERS'
   | 'INTELLIGENCE'
   | 'SETTINGS';
 
@@ -172,6 +190,11 @@ export default function AccountingApp() {
   const [notes, setNotes] = useState('');
   const [expenseReceiptFile, setExpenseReceiptFile] = useState<File | null>(null);
 
+  const [quoteShortfallModal, setQuoteShortfallModal] = useState<{
+    quote: DocumentRecord;
+    shortfalls: Array<StockShortfall & { receiveQty: string; receiveCost: string }>;
+  } | null>(null);
+
   const loadUserAndOrgs = useCallback(async () => {
     const { data: { user: currentUser } } = await supabase.auth.getUser();
     setUser(currentUser);
@@ -229,6 +252,21 @@ export default function AccountingApp() {
     setCustomers((custRes.data as Customer[] | null) ?? []);
     setProducts((prodRes.data as Product[] | null) ?? []);
     setSub(loadedSub);
+
+    const loadedEntitlements = resolveEntitlements(loadedSub, 'owner', todayLocal());
+    const loadedHasRentals =
+      hasCapability(loadedEntitlements, 'rentals.properties');
+    const loadedHasTransport =
+      hasCapability(loadedEntitlements, 'transport.trips');
+    const loadedHasStock =
+      hasCapability(loadedEntitlements, 'inventory.stock_control');
+    if (loadedHasRentals && !loadedHasTransport && !loadedHasStock) {
+      setSection(previous =>
+        previous === 'OVERVIEW' || previous === 'RENTALS'
+          ? 'RENTALS_OVERVIEW'
+          : previous
+      );
+    }
 
     if (!docRes.error) setDocs(applyPaymentTotals((docRes.data as DocumentRecord[] | null) ?? []));
     if (!expRes.error) setExpenses((expRes.data as ExpenseWithReceipt[] | null) ?? []);
@@ -299,6 +337,116 @@ export default function AccountingApp() {
     return () => { cancelled = true; };
   }, [orgLogoUrl]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (quoteShortfallModal) setQuoteShortfallModal(null);
+        else if (receiptTarget) setReceiptTarget(null);
+        else if (showExpenseModal) setShowExpenseModal(false);
+        else if (showDocModal) setShowDocModal(false);
+        else if (previewPdf) setPreviewPdf(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [quoteShortfallModal, receiptTarget, showExpenseModal, showDocModal, previewPdf]);
+
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+
+  const availableYears = useMemo(() => {
+    return Array.from(
+      new Set([...docs.map(d => (d.issue_date || '').slice(0, 4)), ...expenses.map(e => (e.expense_date || '').slice(0, 4))].filter(Boolean))
+    ).sort((a, b) => b.localeCompare(a));
+  }, [docs, expenses]);
+
+  const matchesDate = useCallback((dateStr: string) => {
+    if (!dateStr) return true;
+    const [y, m] = dateStr.split('-');
+    if (selectedYear !== 'ALL' && y !== selectedYear) return false;
+    if (selectedMonth !== 'ALL' && m !== selectedMonth) return false;
+    return true;
+  }, [selectedYear, selectedMonth]);
+
+  const q = deferredSearchQuery.trim().toLowerCase();
+  const dateDocs = useMemo(() => docs.filter(d => matchesDate(d.issue_date)), [docs, matchesDate]);
+  const dateExpenses = useMemo(() => expenses.filter(e => {
+    if (!matchesDate(e.expense_date)) return false;
+    if (!q) return true;
+    return (e.category || '').toLowerCase().includes(q) || (e.vendor || '').toLowerCase().includes(q) || (e.notes || '').toLowerCase().includes(q);
+  }), [expenses, matchesDate, q]);
+
+  const filteredDocs = useMemo(() => dateDocs.filter(d => {
+    if (salesTab !== 'ALL' && d.doc_type !== salesTab) return false;
+    if (!q) return true;
+    return (
+      (d.doc_number || '').toLowerCase().includes(q) ||
+      (d.chain_code || '').toLowerCase().includes(q) ||
+      (d.customer_name || '').toLowerCase().includes(q) ||
+      (d.description || '').toLowerCase().includes(q) ||
+      (d.payment_ref || '').toLowerCase().includes(q)
+    );
+  }), [dateDocs, salesTab, q]);
+
+  const currency = org?.currency || 'KES';
+  const invoicedSales = useMemo(() => dateDocs
+    .filter(d => d.doc_type === 'INVOICE' && d.status !== 'VOID')
+    .reduce((s, d) => s + Number(d.amount || 0), 0), [dateDocs]);
+  const cashCollected = useMemo(() => dateDocs
+    .filter(d => d.doc_type === 'RECEIPT' && d.status !== 'VOID')
+    .reduce((s, d) => s + Number(d.amount || 0), 0), [dateDocs]);
+  const receivables = useMemo(() => dateDocs.reduce((sum, d) => sum + invoiceBalance(d), 0), [dateDocs]);
+  const totalExpenses = useMemo(() => dateExpenses.reduce((s, e) => s + Number(e.amount_kes || 0), 0), [dateExpenses]);
+  const netCashPosition = useMemo(() => cashCollected - totalExpenses, [cashCollected, totalExpenses]);
+
+  const entitlements = useMemo(() => resolveEntitlements(sub, org?.role ?? 'owner', todayLocal()), [sub, org?.role]);
+  const subscriptionLocked = !entitlements.canWrite;
+  const isGrowthPlus =
+    hasCapability(entitlements, 'inventory.stock_control') ||
+    hasCapability(entitlements, 'core.suppliers_ap');
+  const isIntelligencePlus = hasCapability(entitlements, 'intelligence.bi');
+  const canManageSuppliersAp = hasCapability(entitlements, 'core.suppliers_ap');
+  const canManageStockControl = hasCapability(entitlements, 'inventory.stock_control');
+  const canViewGlStatements = hasCapability(entitlements, 'core.gl_statements');
+  const enabledModules = useMemo(() => Array.from(entitlements.modules), [entitlements.modules]);
+  const hasTransportAddon = hasCapability(entitlements, 'transport.trips');
+  const hasRentalsAddon = hasCapability(entitlements, 'rentals.properties');
+  const canManageOwners = hasCapability(entitlements, 'rentals.owners_remittances');
+  const isRentalsOnlySpecialist =
+    hasRentalsAddon && !hasTransportAddon && !canManageStockControl;
+
+  // Transport Command metrics (active only when hasTransportAddon is true)
+  const activeVehiclesCount = useMemo(() => vehicles.filter(v => v.status === 'ACTIVE').length, [vehicles]);
+  const maintenanceVehiclesCount = useMemo(() => vehicles.filter(v => v.status === 'MAINTENANCE').length, [vehicles]);
+  const activeDriversCount = useMemo(() => drivers.filter(d => d.status === 'ACTIVE').length, [drivers]);
+  const upcomingTrips = useMemo(() => trips.filter(t => t.status === 'SCHEDULED' || t.status === 'IN_PROGRESS'), [trips]);
+  const activeTripsList = useMemo(() => trips.filter(t => t.status !== 'CANCELLED'), [trips]);
+  const totalTripFares = useMemo(() => activeTripsList.reduce((s, t) => s + Number(t.agreed_fare), 0), [activeTripsList]);
+  const totalFleetCosts = useMemo(() => vehicleCosts.reduce((s, c) => s + Number(c.amount_kes), 0), [vehicleCosts]);
+  const netFleetMargin = useMemo(() => totalTripFares - totalFleetCosts, [totalTripFares, totalFleetCosts]);
+
+  const today = todayLocal();
+  const driverLicenseAlerts = useMemo(() => drivers.filter(d => {
+    if (!d.license_expiry) return false;
+    if (d.license_expiry < today) return true;
+    const diffDays = (new Date(d.license_expiry).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24);
+    return diffDays <= 30;
+  }), [drivers, today]);
+
+  const vehicleById = useMemo(() => new Map(vehicles.map(v => [v.id, v])), [vehicles]);
+  const driverById = useMemo(() => new Map(drivers.map(d => [d.id, d])), [drivers]);
+
+  const vehicleBreakdown = useMemo(() => vehicles.map(v => {
+    const rev = activeTripsList
+      .filter(t => t.vehicle_id === v.id)
+      .reduce((s, t) => s + Number(t.agreed_fare), 0);
+    const cost = vehicleCosts
+      .filter(c => c.vehicle_id === v.id)
+      .reduce((s, c) => s + Number(c.amount_kes), 0);
+    const tripCount = activeTripsList.filter(t => t.vehicle_id === v.id).length;
+    return { vehicle: v, rev, cost, margin: rev - cost, tripCount };
+  }), [vehicles, activeTripsList, vehicleCosts]);
+
+  // Early auth/workspace returns now safely sit AFTER all Hooks
   if (!authChecked) {
     return <div className="min-h-screen bg-slate-50 flex items-center justify-center text-sm text-slate-500">Loading workspace...</div>;
   }
@@ -333,93 +481,6 @@ export default function AccountingApp() {
     );
   }
 
-  const availableYears = Array.from(
-    new Set([...docs.map(d => (d.issue_date || '').slice(0, 4)), ...expenses.map(e => (e.expense_date || '').slice(0, 4))].filter(Boolean))
-  ).sort((a, b) => b.localeCompare(a));
-
-  const matchesDate = (dateStr: string) => {
-    if (!dateStr) return true;
-    const [y, m] = dateStr.split('-');
-    if (selectedYear !== 'ALL' && y !== selectedYear) return false;
-    if (selectedMonth !== 'ALL' && m !== selectedMonth) return false;
-    return true;
-  };
-
-  const q = searchQuery.trim().toLowerCase();
-  const dateDocs = docs.filter(d => matchesDate(d.issue_date));
-  const dateExpenses = expenses.filter(e => {
-    if (!matchesDate(e.expense_date)) return false;
-    if (!q) return true;
-    return (e.category || '').toLowerCase().includes(q) || (e.vendor || '').toLowerCase().includes(q) || (e.notes || '').toLowerCase().includes(q);
-  });
-
-  const filteredDocs = dateDocs.filter(d => {
-    if (salesTab !== 'ALL' && d.doc_type !== salesTab) return false;
-    if (!q) return true;
-    return (
-      (d.doc_number || '').toLowerCase().includes(q) ||
-      (d.chain_code || '').toLowerCase().includes(q) ||
-      (d.customer_name || '').toLowerCase().includes(q) ||
-      (d.description || '').toLowerCase().includes(q) ||
-      (d.payment_ref || '').toLowerCase().includes(q)
-    );
-  });
-
-  const currency = org?.currency || 'KES';
-  const invoicedSales = dateDocs
-    .filter(d => d.doc_type === 'INVOICE' && d.status !== 'VOID')
-    .reduce((s, d) => s + Number(d.amount || 0), 0);
-  const cashCollected = dateDocs
-    .filter(d => d.doc_type === 'RECEIPT' && d.status !== 'VOID')
-    .reduce((s, d) => s + Number(d.amount || 0), 0);
-  const receivables = dateDocs.reduce((sum, d) => sum + invoiceBalance(d), 0);
-  const totalExpenses = dateExpenses.reduce((s, e) => s + Number(e.amount_kes || 0), 0);
-  const netCashPosition = cashCollected - totalExpenses;
-  const entitlements = resolveEntitlements(sub, org?.role ?? 'owner', todayLocal());
-  const subscriptionLocked = !entitlements.canWrite;
-  const isGrowthPlus =
-    hasCapability(entitlements, 'inventory.stock_control') ||
-    hasCapability(entitlements, 'core.suppliers_ap');
-  const isIntelligencePlus = hasCapability(entitlements, 'intelligence.bi');
-  const canManageSuppliersAp = hasCapability(entitlements, 'core.suppliers_ap');
-  const canManageStockControl = hasCapability(entitlements, 'inventory.stock_control');
-  const canViewGlStatements = hasCapability(entitlements, 'core.gl_statements');
-  const enabledModules = Array.from(entitlements.modules);
-  const hasTransportAddon = hasCapability(entitlements, 'transport.trips');
-  const hasRentalsAddon = hasCapability(entitlements, 'rentals.properties');
-
-  // Transport Command metrics (active only when hasTransportAddon is true)
-  const activeVehiclesCount = vehicles.filter(v => v.status === 'ACTIVE').length;
-  const maintenanceVehiclesCount = vehicles.filter(v => v.status === 'MAINTENANCE').length;
-  const activeDriversCount = drivers.filter(d => d.status === 'ACTIVE').length;
-  const upcomingTrips = trips.filter(t => t.status === 'SCHEDULED' || t.status === 'IN_PROGRESS');
-  const activeTripsList = trips.filter(t => t.status !== 'CANCELLED');
-  const totalTripFares = activeTripsList.reduce((s, t) => s + Number(t.agreed_fare), 0);
-  const totalFleetCosts = vehicleCosts.reduce((s, c) => s + Number(c.amount_kes), 0);
-  const netFleetMargin = totalTripFares - totalFleetCosts;
-
-  const today = todayLocal();
-  const driverLicenseAlerts = drivers.filter(d => {
-    if (!d.license_expiry) return false;
-    if (d.license_expiry < today) return true;
-    const diffDays = (new Date(d.license_expiry).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24);
-    return diffDays <= 30;
-  });
-
-  const vehicleById = new Map(vehicles.map(v => [v.id, v]));
-  const driverById = new Map(drivers.map(d => [d.id, d]));
-
-  const vehicleBreakdown = vehicles.map(v => {
-    const rev = activeTripsList
-      .filter(t => t.vehicle_id === v.id)
-      .reduce((s, t) => s + Number(t.agreed_fare), 0);
-    const cost = vehicleCosts
-      .filter(c => c.vehicle_id === v.id)
-      .reduce((s, c) => s + Number(c.amount_kes), 0);
-    const tripCount = activeTripsList.filter(t => t.vehicle_id === v.id).length;
-    return { vehicle: v, rev, cost, margin: rev - cost, tripCount };
-  });
-
   const openTransportTab = (nextTab: TransportTab) => {
     setTransportTab(nextTab);
     setSection('TRANSPORT');
@@ -451,20 +512,41 @@ export default function AccountingApp() {
       alert('This workspace is read-only until its subscription is renewed.');
       return;
     }
-    if (!window.confirm(`Void invoice ${invoice.doc_number}? This keeps the invoice number for your audit trail and removes it from receivables.`)) return;
+    if (!window.confirm(`Void invoice ${invoice.doc_number}? This keeps the invoice number for your audit trail, removes it from receivables, and restores any deducted stock.`)) return;
 
-    const { error } = await supabase
+    const { data: voided, error } = await supabase
       .from('documents')
       .update({ status: 'VOID' })
       .eq('id', invoice.id)
       .eq('doc_type', 'INVOICE')
-      .eq('status', 'UNPAID');
+      .eq('status', 'UNPAID')
+      .select('id');
 
-    if (error) alert(error.message);
-    else loadOrgData(org.id);
+    if (error) {
+      alert(error.message);
+      return;
+    }
+    if (!voided || voided.length === 0) {
+      alert('This invoice can no longer be voided.');
+      return;
+    }
+
+    const restoreRes = await restoreStockForVoidedDocument(
+      org.id,
+      invoice.id,
+      invoice.doc_number
+    );
+    if (!restoreRes.ok) {
+      alert(`Invoice voided, but stock restoration failed: ${restoreRes.error}`);
+    }
+
+    await loadOrgData(org.id);
   };
 
-  const handleConvertToInvoice = async (quote: DocumentRecord) => {
+  const handleConvertToInvoice = async (
+    quote: DocumentRecord,
+    confirmedTopUps?: Array<{ variantId: string; addQty: number; unitCost: number; note: string }>
+  ) => {
     if (isSubmitting || !org) return;
     if (subscriptionLocked) {
       alert('This workspace is read-only until its subscription is renewed.');
@@ -475,8 +557,35 @@ export default function AccountingApp() {
       return;
     }
 
+    if (!confirmedTopUps && quote.document_items && quote.document_items.length > 0) {
+      const { shortfalls, error: gapErr } = await getStockShortfalls(org.id, quote.document_items);
+      if (gapErr) {
+        alert(gapErr);
+        return;
+      }
+      if (shortfalls.length > 0) {
+        setQuoteShortfallModal({
+          quote,
+          shortfalls: shortfalls.map(s => ({
+            ...s,
+            receiveQty: String(s.shortfall),
+            receiveCost: String(s.defaultCostPrice || 0)
+          }))
+        });
+        return;
+      }
+    }
+
     setIsSubmitting(true);
     try {
+      if (confirmedTopUps && confirmedTopUps.length > 0) {
+        const topUpRes = await topUpStockShortfalls(org.id, confirmedTopUps);
+        if (!topUpRes.ok) {
+          alert(`Stock restock failed: ${topUpRes.error}`);
+          return;
+        }
+      }
+
       const { data: newInvoice, error } = await supabase
         .from('documents')
         .insert([{
@@ -518,7 +627,18 @@ export default function AccountingApp() {
             line_total: li.line_total
           }))
         );
-        if (itemsErr) warnings.push(`line items were not copied (${itemsErr.message})`);
+        if (itemsErr) {
+          warnings.push(`line items were not copied (${itemsErr.message})`);
+        } else {
+          const stockRes = await deductStockForDocument(
+            org.id,
+            newInvoice.id,
+            newInvoice.doc_number
+          );
+          if (!stockRes.ok) {
+            warnings.push(`stock could not be deducted (${stockRes.error})`);
+          }
+        }
       }
 
       const { error: convertErr } = await supabase
@@ -717,6 +837,32 @@ export default function AccountingApp() {
     { id: 'SETTINGS', label: 'Branding & Settings', icon: Settings }
   ];
 
+  const rentalOpsNavItems: NavItem[] = [
+    { id: 'RENTALS_OVERVIEW', label: 'Overview', icon: LayoutGrid },
+    { id: 'RENTALS_PROPERTIES', label: 'Properties & Units', icon: Building2 },
+    { id: 'RENTALS_TENANCIES', label: 'Tenancies & Deposits', icon: Users },
+    { id: 'RENTALS_COLLECTIONS', label: 'Rent & Collections', icon: ReceiptText },
+    { id: 'RENTALS_MAINTENANCE', label: 'Maintenance', icon: Wrench },
+    ...(canManageOwners
+      ? [{ id: 'RENTALS_OWNERS' as Section, label: 'Owners & Remittances', icon: Landmark }]
+      : [])
+  ];
+
+  const rentalFinanceNavItems: NavItem[] = [
+    { id: 'CUSTOMERS', label: 'Tenants', icon: Users },
+    ...(canViewGlStatements
+      ? [{ id: 'STATEMENTS' as Section, label: 'Tenant Statements', icon: FileText }]
+      : []),
+    { id: 'EXPENSES', label: 'Property Expenses', icon: Wallet },
+    ...(canViewGlStatements
+      ? [{ id: 'REPORTS' as Section, label: 'Financial Reports', icon: Scale }]
+      : []),
+    ...(isIntelligencePlus
+      ? [{ id: 'INTELLIGENCE' as Section, label: 'Intelligence', icon: BarChart3 }]
+      : []),
+    { id: 'SETTINGS', label: 'Branding & Settings', icon: Settings }
+  ];
+
   const transportNavItems: { label: string; icon: typeof Truck; active: boolean; onClick: () => void }[] = [
     {
       label: 'Transport Command',
@@ -759,6 +905,18 @@ export default function AccountingApp() {
         ? 'Sales & Invoicing'
         : section === 'STATEMENTS'
           ? 'Statements'
+          : section === 'RENTALS_OVERVIEW'
+            ? 'Rental Operations'
+            : section === 'RENTALS_PROPERTIES'
+              ? 'Properties & Units'
+              : section === 'RENTALS_TENANCIES'
+                ? 'Tenancies & Deposits'
+                : section === 'RENTALS_COLLECTIONS'
+                  ? 'Rent & Collections'
+                  : section === 'RENTALS_MAINTENANCE'
+                    ? 'Maintenance'
+                    : section === 'RENTALS_OWNERS'
+                      ? 'Owners & Remittances'
           : section === 'EXPENSES'
             ? 'Purchases & Expenses'
             : section === 'CUSTOMERS'
@@ -875,53 +1033,105 @@ export default function AccountingApp() {
               </div>
             )}
 
-            {hasTransportAddon && (
-              <div className="space-y-1.5">
-                <div className="px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Transport
+            {isRentalsOnlySpecialist ? (
+              <>
+                <div className="space-y-1.5">
+                  <div className="px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                    Rental Operations
+                  </div>
+                  <nav className="flex flex-col gap-1">
+                    {rentalOpsNavItems.map(item => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setSection(item.id);
+                          setMobileNavOpen(false);
+                        }}
+                        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition ${
+                          section === item.id ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        <item.icon className="w-4 h-4 shrink-0" /> {item.label}
+                      </button>
+                    ))}
+                  </nav>
                 </div>
-                <nav className="flex flex-col gap-1">
-                  {transportNavItems.map(item => (
-                    <button
-                      key={item.label}
-                      onClick={() => {
-                        item.onClick();
-                        setMobileNavOpen(false);
-                      }}
-                      className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition ${
-                        item.active ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
-                      }`}
-                    >
-                      <item.icon className="w-4 h-4 shrink-0" /> {item.label}
-                    </button>
-                  ))}
-                </nav>
-              </div>
-            )}
 
-            <div className="space-y-1.5">
-              {hasTransportAddon && (
-                <div className="px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Finance
+                <div className="space-y-1.5">
+                  <div className="px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                    Finance &amp; Books
+                  </div>
+                  <nav className="flex flex-col gap-1">
+                    {rentalFinanceNavItems.map(item => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setSection(item.id);
+                          setMobileNavOpen(false);
+                        }}
+                        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition ${
+                          section === item.id ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        <item.icon className="w-4 h-4 shrink-0" /> {item.label}
+                      </button>
+                    ))}
+                  </nav>
                 </div>
-              )}
-              <nav className="flex flex-col gap-1">
-                {accountingNavItems.map(item => (
-                  <button
-                    key={item.id}
-                    onClick={() => {
-                      setSection(item.id);
-                      setMobileNavOpen(false);
-                    }}
-                    className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition ${
-                      section === item.id ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    <item.icon className="w-4 h-4 shrink-0" /> {item.label}
-                  </button>
-                ))}
-              </nav>
-            </div>
+              </>
+            ) : (
+              <>
+                {hasTransportAddon && (
+                  <div className="space-y-1.5">
+                    <div className="px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      Transport
+                    </div>
+                    <nav className="flex flex-col gap-1">
+                      {transportNavItems.map(item => (
+                        <button
+                          key={item.label}
+                          onClick={() => {
+                            item.onClick();
+                            setMobileNavOpen(false);
+                          }}
+                          className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition ${
+                            item.active ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
+                          }`}
+                        >
+                          <item.icon className="w-4 h-4 shrink-0" /> {item.label}
+                        </button>
+                      ))}
+                    </nav>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  {hasTransportAddon && (
+                    <div className="px-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      Finance
+                    </div>
+                  )}
+                  <nav className="flex flex-col gap-1">
+                    {accountingNavItems.map(item => (
+                      <button
+                        key={item.id}
+                        onClick={() => {
+                          setSection(item.id);
+                          setMobileNavOpen(false);
+                        }}
+                        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium whitespace-nowrap transition ${
+                          section === item.id ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        <item.icon className="w-4 h-4 shrink-0" /> {item.label}
+                      </button>
+                    ))}
+                  </nav>
+                </div>
+              </>
+            )}
 
             <div className="md:hidden pt-3 border-t border-slate-200 space-y-2">
               {enabledModules.length > 0 && (
@@ -992,25 +1202,28 @@ export default function AccountingApp() {
         )}
 
         {/* Context-Aware Desktop / Page Header */}
-        {section !== 'STATEMENTS' && (
-          <div className="hidden md:flex justify-between items-center gap-4">
-            <h2 className="text-2xl font-bold tracking-tight text-slate-900">
-              {sectionTitle}
-            </h2>
+        {section !== 'STATEMENTS' && !section.startsWith('RENTALS') && (
+          <div className="hidden md:flex justify-between items-center gap-4 pb-1">
+            <div>
+              <h2 className={ui.pageTitle}>{sectionTitle}</h2>
+              <p className="text-xs font-medium text-slate-500 mt-1">
+                {org?.name} &middot; <span className="font-semibold text-slate-700">{sub?.plan || 'STARTER'}</span> workspace
+              </p>
+            </div>
             <div className="flex items-center gap-2.5">
               {(section === 'OVERVIEW' || section === 'TRANSPORT') && hasTransportAddon && (
                 <>
                   <button
                     disabled={subscriptionLocked}
                     onClick={() => openTransportTab('TRIPS')}
-                    className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-semibold shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    className={ui.btnDark}
                   >
                     <MapPin className="w-4 h-4" /> Dispatch Trip
                   </button>
                   <button
                     disabled={subscriptionLocked}
                     onClick={() => openTransportTab('COSTS')}
-                    className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    className={ui.btnSecondary}
                   >
                     <Fuel className="w-4 h-4 text-amber-600" /> Log Fuel / Cost
                   </button>
@@ -1020,7 +1233,7 @@ export default function AccountingApp() {
                 <button
                   disabled={subscriptionLocked}
                   onClick={() => setShowDocModal(true)}
-                  className="flex items-center gap-1.5 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={ui.btnPrimary}
                 >
                   <PlusCircle className="w-4 h-4" /> New Quote / Invoice
                 </button>
@@ -1029,7 +1242,7 @@ export default function AccountingApp() {
                 <button
                   disabled={subscriptionLocked}
                   onClick={() => setShowExpenseModal(true)}
-                  className="flex items-center gap-1.5 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-semibold shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className={ui.btnDanger}
                 >
                   <ReceiptText className="w-4 h-4" /> Log Expense
                 </button>
@@ -1037,7 +1250,7 @@ export default function AccountingApp() {
               {(section === 'SALES' || section === 'EXPENSES') && (
                 <button
                   onClick={exportTaxCSV}
-                  className="flex items-center gap-1.5 px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-semibold transition"
+                  className={ui.btnSecondary}
                 >
                   <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Export CSV
                 </button>
@@ -1048,27 +1261,44 @@ export default function AccountingApp() {
 
         {/* Search & Date Filter */}
         {((!hasTransportAddon && section === 'OVERVIEW') || section === 'SALES' || section === 'EXPENSES') && (
-          <div className="bg-white border border-slate-200 p-3 rounded-2xl flex flex-col md:flex-row gap-3">
+          <div className="bg-white border border-slate-200/90 shadow-xs p-3.5 rounded-2xl flex flex-col md:flex-row gap-3 items-stretch md:items-center">
             <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Search Doc Code, Client, Vendor, or Payment Ref..."
                 value={searchQuery}
                 onChange={e => { setSearchQuery(e.target.value); setDocLimit(PAGE_SIZE); setExpenseLimit(PAGE_SIZE); }}
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-8 py-2 text-sm focus:outline-none focus:border-blue-500"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-10 pr-9 py-2 text-sm text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition"
               />
-              {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400"><X className="w-4 h-4" /></button>}
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Clear search"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
             </div>
             <div className="flex gap-2">
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
-                <Calendar className="w-4 h-4 text-slate-400" />
-                <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)} className="bg-transparent text-sm">
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700">
+                <Calendar className="w-4 h-4 text-slate-500 shrink-0" />
+                <select
+                  value={selectedYear}
+                  onChange={e => setSelectedYear(e.target.value)}
+                  className="bg-transparent text-sm font-medium focus:outline-none cursor-pointer"
+                >
                   <option value="ALL">All Years</option>
                   {availableYears.map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
               </div>
-              <select value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm">
+              <select
+                value={selectedMonth}
+                onChange={e => setSelectedMonth(e.target.value)}
+                className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 focus:outline-none cursor-pointer"
+              >
                 {MONTHS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </div>
@@ -1217,27 +1447,47 @@ export default function AccountingApp() {
         {/* CORE ACCOUNTING OVERVIEW KPIs (When no specialist module overrides overview) */}
         {section === 'OVERVIEW' && !hasTransportAddon && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white border border-slate-200 p-5 rounded-2xl">
-              <div className="text-xs font-semibold text-slate-500 uppercase">Cash Collected (Receipts)</div>
-              <div className="text-2xl font-bold text-emerald-600 mt-1">{currency} {cashCollected.toLocaleString()}</div>
-              <div className="text-xs text-slate-400 mt-1">Invoiced Sales: {currency} {invoicedSales.toLocaleString()}</div>
+            <div className={ui.kpiCard}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Cash Collected</span>
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+              </div>
+              <div className="text-2xl sm:text-3xl font-extrabold text-emerald-600 mt-2 tracking-tight">
+                {currency} {cashCollected.toLocaleString()}
+              </div>
+              <div className="text-xs font-medium text-slate-500 mt-1">
+                Invoiced: {currency} {invoicedSales.toLocaleString()}
+              </div>
             </div>
-            <div className="bg-white border border-slate-200 p-5 rounded-2xl">
-              <div className="text-xs font-semibold text-slate-500 uppercase">Outstanding Receivables</div>
-              <div className="text-2xl font-bold text-amber-600 mt-1">{currency} {receivables.toLocaleString()}</div>
-              <div className="text-xs text-slate-400 mt-1">Unpaid &amp; Partial Invoices</div>
+            <div className={ui.kpiCard}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Receivables</span>
+                <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+              </div>
+              <div className="text-2xl sm:text-3xl font-extrabold text-amber-600 mt-2 tracking-tight">
+                {currency} {receivables.toLocaleString()}
+              </div>
+              <div className="text-xs font-medium text-slate-500 mt-1">Unpaid &amp; Partial Invoices</div>
             </div>
-            <div className="bg-white border border-slate-200 p-5 rounded-2xl">
-              <div className="text-xs font-semibold text-slate-500 uppercase">Expenses Recorded</div>
-              <div className="text-2xl font-bold text-rose-600 mt-1">{currency} {totalExpenses.toLocaleString()}</div>
-              <div className="text-xs text-slate-400 mt-1">{dateExpenses.length} expense entries</div>
+            <div className={ui.kpiCard}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Expenses</span>
+                <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+              </div>
+              <div className="text-2xl sm:text-3xl font-extrabold text-rose-600 mt-2 tracking-tight">
+                {currency} {totalExpenses.toLocaleString()}
+              </div>
+              <div className="text-xs font-medium text-slate-500 mt-1">{dateExpenses.length} expense entries</div>
             </div>
-            <div className="bg-white border border-slate-200 p-5 rounded-2xl">
-              <div className="text-xs font-semibold text-slate-500 uppercase">Net Cash Flow</div>
-              <div className={`text-2xl font-bold mt-1 ${netCashPosition >= 0 ? 'text-blue-600' : 'text-rose-600'}`}>
+            <div className={ui.kpiCard}>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Net Cash Flow</span>
+                <span className={`w-2 h-2 rounded-full ${netCashPosition >= 0 ? 'bg-blue-500' : 'bg-rose-500'}`}></span>
+              </div>
+              <div className={`text-2xl sm:text-3xl font-extrabold mt-2 tracking-tight ${netCashPosition >= 0 ? 'text-blue-600' : 'text-rose-600'}`}>
                 {currency} {netCashPosition.toLocaleString()}
               </div>
-              <div className="text-xs text-slate-400 mt-1">Cash Collected &minus; Expenses</div>
+              <div className="text-xs font-medium text-slate-500 mt-1">Cash Collected &minus; Expenses</div>
             </div>
           </div>
         )}
@@ -1286,6 +1536,7 @@ export default function AccountingApp() {
             customers={customers}
             products={products}
             docs={docs}
+            isReadOnly={subscriptionLocked}
             onRefresh={() => loadOrgData(org.id)}
           />
         )}
@@ -1315,11 +1566,26 @@ export default function AccountingApp() {
           />
         )}
 
-        {section === 'RENTALS' && org && hasRentalsAddon && (
+        {org && hasRentalsAddon && section.startsWith('RENTALS') && (
           <RentalsSection
             orgId={org.id}
             currency={org.currency || 'KES'}
             customers={customers}
+            canManageOwners={canManageOwners}
+            hideInnerTabs={isRentalsOnlySpecialist}
+            initialTab={
+              section === 'RENTALS_PROPERTIES'
+                ? 'PROPERTIES'
+                : section === 'RENTALS_TENANCIES'
+                  ? 'TENANCIES'
+                  : section === 'RENTALS_COLLECTIONS'
+                    ? 'COLLECTIONS'
+                    : section === 'RENTALS_MAINTENANCE'
+                      ? 'MAINTENANCE'
+                      : section === 'RENTALS_OWNERS'
+                        ? 'OWNERS'
+                        : 'OVERVIEW'
+            }
             isReadOnly={subscriptionLocked}
             onDataChanged={() => loadOrgData(org.id)}
           />
@@ -1367,7 +1633,9 @@ export default function AccountingApp() {
             onOrgChange={setOrg}
             onSaved={loadUserAndOrgs}
             isIntelligencePlus={isIntelligencePlus}
+            hasRentalsAddon={hasRentalsAddon}
             currentUserId={user.id}
+            userEmail={user.email ?? undefined}
             isReadOnly={subscriptionLocked}
           />
         )}
@@ -1389,17 +1657,45 @@ export default function AccountingApp() {
 
       {/* ISSUE RECEIPT MODAL (SUPPORTS PARTIAL / DEPOSIT PAYMENTS) */}
       {receiptTarget && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-3 shadow-xl">
-            <h3 className="text-lg font-bold">Issue Receipt for {receiptTarget.doc_number}</h3>
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-1">
-              <div className="flex justify-between"><span className="text-slate-500">Invoice Total:</span><span className="font-semibold">{currency} {Number(receiptTarget.amount).toLocaleString()}</span></div>
-              <div className="flex justify-between"><span className="text-slate-500">Already Paid:</span><span className="font-semibold text-emerald-600">{currency} {Number(receiptTarget.amount_paid || 0).toLocaleString()}</span></div>
-              <div className="flex justify-between border-t border-slate-200 pt-1"><span className="text-slate-700 font-semibold">Balance Remaining:</span><span className="font-bold text-amber-600">{currency} {invoiceBalance(receiptTarget).toLocaleString()}</span></div>
+        <div
+          onClick={e => { if (e.target === e.currentTarget) setReceiptTarget(null); }}
+          className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in"
+        >
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-100">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="text-lg font-bold text-slate-900">Issue Receipt</h3>
+              <button
+                type="button"
+                onClick={() => setReceiptTarget(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+                aria-label="Close dialog"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <form onSubmit={handleConfirmReceipt} className="space-y-3">
+
+            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 text-xs sm:text-sm space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Invoice Number:</span>
+                <span className="font-mono font-bold text-slate-800">{receiptTarget.doc_number}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Invoice Total:</span>
+                <span className="font-semibold text-slate-900">{currency} {Number(receiptTarget.amount).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500 font-medium">Already Paid:</span>
+                <span className="font-semibold text-emerald-600">{currency} {Number(receiptTarget.amount_paid || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between border-t border-slate-200 pt-1.5">
+                <span className="text-slate-700 font-semibold">Balance Due:</span>
+                <span className="font-bold text-amber-600">{currency} {invoiceBalance(receiptTarget).toLocaleString()}</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmReceipt} className="space-y-3.5">
               <div>
-                <label className="text-xs font-medium text-slate-600">Amount Received ({currency})</label>
+                <label className={ui.label}>Amount Received ({currency})</label>
                 <input
                   type="number"
                   step="any"
@@ -1408,17 +1704,35 @@ export default function AccountingApp() {
                   required
                   value={receiptAmount}
                   onChange={e => setReceiptAmount(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl p-2.5 text-sm mt-1 font-bold"
+                  className={ui.input + " font-bold text-base"}
                 />
               </div>
-              <select value={receiptMethod} onChange={e => setReceiptMethod(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm">
-                {PAYMENT_METHODS.map(pm => <option key={pm} value={pm}>{pm}</option>)}
-              </select>
-              <input type="text" placeholder="Payment / Transaction Reference" value={receiptRef} onChange={e => setReceiptRef(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm font-mono" />
-              <input type="date" required value={receiptDate} onChange={e => setReceiptDate(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm" />
-              <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => setReceiptTarget(null)} className="flex-1 py-2.5 bg-slate-100 rounded-xl text-sm font-semibold">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50">
+              <div>
+                <label className={ui.label}>Payment Method</label>
+                <select value={receiptMethod} onChange={e => setReceiptMethod(e.target.value)} className={ui.select}>
+                  {PAYMENT_METHODS.map(pm => <option key={pm} value={pm}>{pm}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className={ui.label}>Reference / Code</label>
+                <input
+                  type="text"
+                  placeholder="e.g. M-PESA Confirmation Code or Check #"
+                  value={receiptRef}
+                  onChange={e => setReceiptRef(e.target.value)}
+                  className={ui.input + " font-mono"}
+                />
+              </div>
+              <div>
+                <label className={ui.label}>Payment Date</label>
+                <input type="date" required value={receiptDate} onChange={e => setReceiptDate(e.target.value)} className={ui.input} />
+              </div>
+
+              <div className="flex gap-2.5 pt-2">
+                <button type="button" onClick={() => setReceiptTarget(null)} className={ui.btnSecondary + " flex-1"}>
+                  Cancel
+                </button>
+                <button type="submit" disabled={isSubmitting} className={ui.btnSuccess + " flex-1"}>
                   {isSubmitting ? 'Saving...' : 'Confirm Receipt'}
                 </button>
               </div>
@@ -1429,35 +1743,250 @@ export default function AccountingApp() {
 
       {/* ADD EXPENSE MODAL */}
       {showExpenseModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-3 shadow-xl">
-            <h3 className="text-lg font-bold">Log Business Expense</h3>
-            <form onSubmit={handleAddExpense} className="space-y-3">
-              <select value={expenseCategory} onChange={e => setExpenseCategory(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm">
-                {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-              <div className="grid grid-cols-2 gap-2">
-                <input type="date" required value={expenseDate} onChange={e => setExpenseDate(e.target.value)} className="border border-slate-300 rounded-xl p-2.5 text-sm" />
-                <input type="number" required placeholder={`Amount (${currency})`} value={expenseAmount} onChange={e => setExpenseAmount(e.target.value)} className="border border-slate-300 rounded-xl p-2.5 text-sm" />
-              </div>
-              <input type="text" placeholder="Vendor / Supplier" value={vendor} onChange={e => setVendor(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm" />
-              <input type="text" placeholder="Notes" value={notes} onChange={e => setNotes(e.target.value)} className="w-full border border-slate-300 rounded-xl p-2.5 text-sm" />
+        <div
+          onClick={e => { if (e.target === e.currentTarget) { setShowExpenseModal(false); setExpenseReceiptFile(null); } }}
+          className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in"
+        >
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-100">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <h3 className="text-lg font-bold text-slate-900">Log Business Expense</h3>
+              <button
+                type="button"
+                onClick={() => { setShowExpenseModal(false); setExpenseReceiptFile(null); }}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+                aria-label="Close dialog"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddExpense} className="space-y-3.5">
               <div>
-                <label className="text-xs font-medium text-slate-600 block mb-1">Receipt / Bill Photo or PDF (Optional)</label>
+                <label className={ui.label}>Category</label>
+                <select value={expenseCategory} onChange={e => setExpenseCategory(e.target.value)} className={ui.select}>
+                  {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className={ui.label}>Date</label>
+                  <input type="date" required value={expenseDate} onChange={e => setExpenseDate(e.target.value)} className={ui.input} />
+                </div>
+                <div>
+                  <label className={ui.label}>Amount ({currency})</label>
+                  <input
+                    type="number"
+                    step="any"
+                    required
+                    placeholder="0.00"
+                    value={expenseAmount}
+                    onChange={e => setExpenseAmount(e.target.value)}
+                    className={ui.input + " font-semibold"}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className={ui.label}>Vendor / Supplier</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Shell, Total, Landlord"
+                  value={vendor}
+                  onChange={e => setVendor(e.target.value)}
+                  className={ui.input}
+                />
+              </div>
+              <div>
+                <label className={ui.label}>Notes</label>
+                <input
+                  type="text"
+                  placeholder="Optional description"
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  className={ui.input}
+                />
+              </div>
+              <div>
+                <label className={ui.label}>Receipt Photo or PDF (Optional)</label>
                 <input
                   type="file"
                   accept="image/png,image/jpeg,image/webp,application/pdf"
                   onChange={e => setExpenseReceiptFile(e.target.files?.[0] ?? null)}
-                  className="w-full text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-slate-100 file:text-slate-700 file:font-semibold hover:file:bg-slate-200"
+                  className="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-3.5 file:rounded-xl file:border-0 file:bg-slate-100 file:text-slate-700 file:font-semibold hover:file:bg-slate-200 cursor-pointer"
                 />
               </div>
-              <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => { setShowExpenseModal(false); setExpenseReceiptFile(null); }} className="flex-1 py-2.5 bg-slate-100 rounded-xl text-sm font-semibold">Cancel</button>
-                <button type="submit" disabled={isSubmitting} className="flex-1 py-2.5 bg-rose-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50">
+              <div className="flex gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setShowExpenseModal(false); setExpenseReceiptFile(null); }}
+                  className={ui.btnSecondary + " flex-1"}
+                >
+                  Cancel
+                </button>
+                <button type="submit" disabled={isSubmitting} className={ui.btnDanger + " flex-1"}>
                   {isSubmitting ? 'Saving...' : 'Save Expense'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* QUOTE CONVERSION TOP-UP MODAL */}
+      {quoteShortfallModal && (
+        <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl border border-slate-100">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <h3 className="text-base font-bold text-slate-900">
+                Top Up Stock to Convert {quoteShortfallModal.quote.doc_number}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setQuoteShortfallModal(null)}
+                className="p-1 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600">
+              Existing stock will be used first. Confirm the top-up quantity to match this quote, or enter a higher quantity to fully restock:
+            </p>
+
+            <div className="space-y-2.5 max-h-72 overflow-y-auto">
+              {quoteShortfallModal.shortfalls.map((s, idx) => (
+                <div key={s.productId} className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2 text-xs">
+                  <div className="flex justify-between font-semibold text-slate-900">
+                    <span>{s.productName}</span>
+                    <span className="text-amber-800">
+                      On hand: {s.available} &middot; Quoted: {s.requested} &middot; Short: {s.shortfall}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[11px] text-slate-500">Qty to Add (min {s.shortfall})</label>
+                      <input
+                        type="number"
+                        min={s.shortfall}
+                        step="1"
+                        value={s.receiveQty}
+                        onChange={e =>
+                          setQuoteShortfallModal(prev =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  shortfalls: prev.shortfalls.map((row, i) =>
+                                    i === idx ? { ...row, receiveQty: e.target.value } : row
+                                  )
+                                }
+                              : null
+                          )
+                        }
+                        className="w-full border border-slate-300 bg-white rounded-lg p-1.5 font-bold mt-0.5"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] text-slate-500">Unit Cost ({currency})</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={s.receiveCost}
+                        onChange={e =>
+                          setQuoteShortfallModal(prev =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  shortfalls: prev.shortfalls.map((row, i) =>
+                                    i === idx ? { ...row, receiveCost: e.target.value } : row
+                                  )
+                                }
+                              : null
+                          )
+                        }
+                        className="w-full border border-slate-300 bg-white rounded-lg p-1.5 mt-0.5"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setQuoteShortfallModal(prev =>
+                          prev
+                            ? {
+                                ...prev,
+                                shortfalls: prev.shortfalls.map((row, i) =>
+                                  i === idx ? { ...row, receiveQty: String(row.shortfall) } : row
+                                )
+                              }
+                            : null
+                        )
+                      }
+                      className="px-2.5 py-1 rounded-full bg-white border border-amber-300 text-amber-800 text-[11px] font-semibold hover:bg-amber-100"
+                    >
+                      Exact Match (+{s.shortfall})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setQuoteShortfallModal(prev =>
+                          prev
+                            ? {
+                                ...prev,
+                                shortfalls: prev.shortfalls.map((row, i) =>
+                                  i === idx ? { ...row, receiveQty: String(row.shortfall + 10) } : row
+                                )
+                              }
+                            : null
+                        )
+                      }
+                      className="px-2.5 py-1 rounded-full bg-white border border-amber-300 text-amber-800 text-[11px] font-semibold hover:bg-amber-100"
+                    >
+                      Full Restock (+{s.shortfall + 10})
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setQuoteShortfallModal(null)}
+                className={ui.btnSecondary + ' flex-1'}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={async () => {
+                  const current = quoteShortfallModal;
+                  for (const s of current.shortfalls) {
+                    if (Number(s.receiveQty || 0) < s.shortfall) {
+                      alert(`Add at least ${s.shortfall} unit(s) for "${s.productName}".`);
+                      return;
+                    }
+                  }
+                  setQuoteShortfallModal(null);
+                  await handleConvertToInvoice(
+                    current.quote,
+                    current.shortfalls.map(s => ({
+                      variantId: s.defaultVariantId,
+                      addQty: Number(s.receiveQty || 0),
+                      unitCost: Number(s.receiveCost || 0),
+                      note:
+                        Number(s.receiveQty) === s.shortfall
+                          ? `Top-up (+${s.shortfall}) for ${current.quote.doc_number}`
+                          : `Restock (+${s.receiveQty}) converting ${current.quote.doc_number}`
+                    }))
+                  );
+                }}
+                className={ui.btnPrimary + ' flex-1'}
+              >
+                Receive &amp; Convert
+              </button>
+            </div>
           </div>
         </div>
       )}

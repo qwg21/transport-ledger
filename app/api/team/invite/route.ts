@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 type InviteBody = {
   orgId?: string;
   email?: string;
-  role?: 'admin' | 'staff' | 'viewer';
+  role?: 'admin' | 'staff' | 'viewer' | 'caretaker';
 };
 
 export async function POST(req: NextRequest) {
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
   const email = body.email?.trim().toLowerCase();
   const role = body.role;
 
-  if (!orgId || !email || !role || !['admin', 'staff', 'viewer'].includes(role)) {
+  if (!orgId || !email || !role || !['admin', 'staff', 'viewer', 'caretaker'].includes(role)) {
     return NextResponse.json({ error: 'Invalid invite details.' }, { status: 400 });
   }
 

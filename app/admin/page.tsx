@@ -73,6 +73,7 @@ const PLATFORM_ADMIN_EMAIL = 'quentinwg2015@gmail.com';
 const PLANS = ['STARTER', 'ESSENTIAL', 'GROWTH', 'INTELLIGENCE', 'ENTERPRISE'] as const;
 const SPECIALIST_MODULES = [
   { id: 'TRANSPORT', label: 'Transport' },
+  { id: 'RENTALS', label: 'Rentals' },
   { id: 'MANUFACTURING', label: 'Manufacturing' },
   { id: 'WAREHOUSE', label: 'Warehouse' },
   { id: 'PAYROLL', label: 'Payroll' },

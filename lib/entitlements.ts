@@ -37,6 +37,7 @@ export type CapabilityKey =
   | 'rentals.tenancies'
   | 'rentals.billing'
   | 'rentals.payments'
+  | 'rentals.caretakers'
   | 'rentals.owners_remittances'
   | 'warehouse.operations'
   | 'procurement.advanced'
@@ -139,7 +140,10 @@ export function resolveEntitlements(
     entitled.add('rentals.tenancies');
     entitled.add('rentals.billing');
     entitled.add('rentals.payments');
-    entitled.add('rentals.owners_remittances');
+    entitled.add('rentals.caretakers');
+    if (rank >= TIER_RANK.GROWTH) {
+      entitled.add('rentals.owners_remittances');
+    }
   }
   if (modules.has('WAREHOUSE') && rank >= TIER_RANK[MODULE_MIN_CORE.WAREHOUSE]) {
     entitled.add('warehouse.operations');
@@ -182,6 +186,21 @@ export function resolveEntitlements(
   if (lowerRole === 'driver') {
     for (const cap of Array.from(permitted)) {
       if (!cap.startsWith('transport.trips') && !cap.startsWith('transport.fuel_maintenance')) {
+        permitted.delete(cap);
+      }
+    }
+  }
+  if (lowerRole === 'caretaker') {
+    const caretakerAllowed = new Set<CapabilityKey>([
+      'core.customers',
+      'core.expenses',
+      'core.attachments',
+      'rentals.properties',
+      'rentals.tenancies',
+      'rentals.billing'
+    ]);
+    for (const cap of Array.from(permitted)) {
+      if (!caretakerAllowed.has(cap)) {
         permitted.delete(cap);
       }
     }

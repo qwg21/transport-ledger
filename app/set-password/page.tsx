@@ -109,10 +109,13 @@ export default function SetPasswordPage() {
           </p>
         )}
 
-        <label className="block text-sm font-medium text-slate-700">
+        <label htmlFor="new-password" className="block text-sm font-medium text-slate-700">
           New Password
           <input
+            id="new-password"
+            name="new-password"
             type="password"
+            autoComplete="new-password"
             required
             minLength={6}
             value={password}
@@ -121,10 +124,13 @@ export default function SetPasswordPage() {
           />
         </label>
 
-        <label className="block text-sm font-medium text-slate-700">
+        <label htmlFor="confirm-password" className="block text-sm font-medium text-slate-700">
           Confirm Password
           <input
+            id="confirm-password"
+            name="confirm-password"
             type="password"
+            autoComplete="new-password"
             required
             minLength={6}
             value={confirmPassword}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { Users, UserPlus, Trash2, Mail, ShieldCheck } from 'lucide-react';
 
@@ -23,32 +23,57 @@ type Props = {
   userRole: string;
   currentUserId?: string;
   isIntelligencePlus: boolean;
+  hasRentalsAddon?: boolean;
   isReadOnly?: boolean;
 };
 
-const INVITE_ROLES = [
+type InviteRoleValue = 'admin' | 'staff' | 'viewer' | 'caretaker';
+
+const ALL_INVITE_ROLES: { value: InviteRoleValue; label: string }[] = [
   { value: 'admin', label: 'Admin — Full access & team management' },
   { value: 'staff', label: 'Staff — Create invoices, receipts & expenses' },
-  { value: 'viewer', label: 'Viewer — Read-only reports & documents' }
-] as const;
+  { value: 'viewer', label: 'Viewer — Read-only reports & documents' },
+  { value: 'caretaker', label: 'Caretaker — Manage properties, tenants & bills' }
+];
 
 export default function TeamManagementSection({
   orgId,
   userRole,
   currentUserId,
   isIntelligencePlus,
+  hasRentalsAddon = false,
   isReadOnly = false
 }: Props) {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [invites, setInvites] = useState<PendingInvite[]>([]);
   const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState<'admin' | 'staff' | 'viewer'>('staff');
+
+  const availableRoles = useMemo(() => {
+    if (isIntelligencePlus) {
+      return hasRentalsAddon
+        ? ALL_INVITE_ROLES
+        : ALL_INVITE_ROLES.filter(r => r.value !== 'caretaker');
+    }
+    if (hasRentalsAddon) {
+      return ALL_INVITE_ROLES.filter(r => r.value === 'caretaker');
+    }
+    return [];
+  }, [isIntelligencePlus, hasRentalsAddon]);
+
+  const [inviteRole, setInviteRole] = useState<InviteRoleValue>(
+    !isIntelligencePlus && hasRentalsAddon ? 'caretaker' : 'staff'
+  );
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
+  const effectiveInviteRole = useMemo(() => {
+    if (availableRoles.some(r => r.value === inviteRole)) return inviteRole;
+    return availableRoles[0]?.value ?? '';
+  }, [availableRoles, inviteRole]);
+
   const canManage =
-    isIntelligencePlus &&
+    (isIntelligencePlus || hasRentalsAddon) &&
     !isReadOnly &&
     ['owner', 'admin'].includes((userRole || '').toLowerCase());
 
@@ -128,7 +153,7 @@ export default function TeamManagementSection({
         body: JSON.stringify({
           orgId,
           email: normalizedEmail,
-          role: inviteRole
+          role: effectiveInviteRole
         })
       });
 
@@ -203,10 +228,12 @@ export default function TeamManagementSection({
         <div>
           <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
             <Users className="w-4 h-4 text-blue-600" />
-            Team & Role Access
+            Team &amp; Role Access
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Invite accountants, clerks, or managers to collaborate on this workspace.
+            {hasRentalsAddon && !isIntelligencePlus
+              ? 'Invite your property caretaker to manage house numbers, tenants, water readings, and bills.'
+              : 'Invite caretakers, accountants, clerks, or managers to collaborate on this workspace.'}
           </p>
         </div>
         <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 uppercase">
@@ -214,9 +241,15 @@ export default function TeamManagementSection({
         </span>
       </div>
 
-      {!isIntelligencePlus && (
+      {!isIntelligencePlus && !hasRentalsAddon && (
         <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
           Multi-user team invites and role controls require the <strong>INTELLIGENCE</strong> plan.
+        </div>
+      )}
+
+      {!isIntelligencePlus && hasRentalsAddon && (
+        <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 text-xs text-blue-800">
+          <strong>Caretaker access included:</strong> Invite your property caretaker to enter unit details, onboard tenants, and generate monthly bills. Additional admin/staff roles unlock on <strong>INTELLIGENCE</strong>.
         </div>
       )}
 
@@ -231,22 +264,22 @@ export default function TeamManagementSection({
         </div>
       )}
 
-      {canManage && (
+      {canManage && availableRoles.length > 0 && (
         <form onSubmit={handleSendInvite} className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
           <input
             type="email"
             required
-            placeholder="teammate@company.co.ke"
+            placeholder="caretaker@company.co.ke"
             value={inviteEmail}
             onChange={e => setInviteEmail(e.target.value)}
             className="sm:col-span-6 border border-slate-300 rounded-xl px-3 py-2 text-sm"
           />
           <select
-            value={inviteRole}
-            onChange={e => setInviteRole(e.target.value as 'admin' | 'staff' | 'viewer')}
+            value={effectiveInviteRole}
+            onChange={e => setInviteRole(e.target.value as InviteRoleValue)}
             className="sm:col-span-4 border border-slate-300 rounded-xl px-2.5 py-2 text-xs bg-white"
           >
-            {INVITE_ROLES.map(r => (
+            {availableRoles.map(r => (
               <option key={r.value} value={r.value}>
                 {r.label}
               </option>
@@ -290,15 +323,22 @@ export default function TeamManagementSection({
                     </span>
                   ) : (
                     <>
-                      <select
-                        value={member.role.toLowerCase()}
-                        onChange={e => handleRoleChange(member.user_id, e.target.value)}
-                        className="border border-slate-300 rounded-lg px-2 py-1 text-xs bg-white uppercase font-medium"
-                      >
-                        <option value="admin">ADMIN</option>
-                        <option value="staff">STAFF</option>
-                        <option value="viewer">VIEWER</option>
-                      </select>
+                      {isIntelligencePlus ? (
+                        <select
+                          value={member.role.toLowerCase()}
+                          onChange={e => handleRoleChange(member.user_id, e.target.value)}
+                          className="border border-slate-300 rounded-lg px-2 py-1 text-xs bg-white uppercase font-medium"
+                        >
+                          <option value="admin">ADMIN</option>
+                          <option value="staff">STAFF</option>
+                          <option value="viewer">VIEWER</option>
+                          {hasRentalsAddon && <option value="caretaker">CARETAKER</option>}
+                        </select>
+                      ) : (
+                        <span className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 uppercase">
+                          {member.role}
+                        </span>
+                      )}
                       <button
                         type="button"
                         onClick={() => handleRemoveMember(member.user_id, member.email)}
