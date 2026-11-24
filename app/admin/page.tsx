@@ -796,30 +796,25 @@ export default function PlatformAdminPage() {
                           </div>
                         </td>
                         <td className="py-3 px-2">
-                          {isSuperAdmin ? (
-                            <select
-                              value={t.plan || 'STARTER'}
-                              onChange={e =>
-                                handleUpdateSub(
-                                  t,
-                                  e.target.value,
-                                  t.status ?? 'ACTIVE',
-                                  !!t.transport_addon
-                                )
-                              }
-                              className="border border-slate-200 rounded-lg px-2 py-1 text-xs font-semibold bg-white"
-                            >
-                              {PLANS.map(p => (
-                                <option key={p} value={p}>
-                                  {p}
-                                </option>
-                              ))}
-                            </select>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-800 text-xs font-semibold">
-                              {t.plan || 'STARTER'}
-                            </span>
-                          )}
+                          <select
+                            value={t.plan || 'STARTER'}
+                            onChange={e =>
+                              handleUpdateSub(
+                                t,
+                                e.target.value,
+                                t.status ?? 'TRIAL',
+                                !!t.transport_addon
+                              )
+                            }
+                            aria-label={`Plan tier for ${t.name}`}
+                            className="border border-slate-200 rounded-lg px-2 py-1 text-xs font-semibold bg-white text-slate-900"
+                          >
+                            {PLANS.map(p => (
+                              <option key={p} value={p}>
+                                {p}
+                              </option>
+                            ))}
+                          </select>
                         </td>
                         <td className="py-3 px-2">
                           {isSuperAdmin ? (
@@ -867,7 +862,7 @@ export default function PlatformAdminPage() {
                               const active =
                                 (t.enabled_modules ?? []).includes(mod.id) ||
                                 (mod.id === 'TRANSPORT' && !!t.transport_addon);
-                              return isSuperAdmin ? (
+                              return (
                                 <button
                                   key={mod.id}
                                   type="button"
@@ -880,14 +875,7 @@ export default function PlatformAdminPage() {
                                 >
                                   {mod.label}
                                 </button>
-                              ) : active ? (
-                                <span
-                                  key={mod.id}
-                                  className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700"
-                                >
-                                  {mod.label}
-                                </span>
-                              ) : null;
+                              );
                             })}
                           </div>
                         </td>

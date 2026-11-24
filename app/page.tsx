@@ -259,7 +259,26 @@ export default function AccountingApp() {
     } = await supabase.auth.getUser();
     setUser(currentUser);
     setAuthChecked(true);
-    if (!currentUser) return;
+    if (!currentUser) {
+      setPlatformAdminRole(null);
+      return;
+    }
+
+    const lowerEmail = currentUser.email?.toLowerCase();
+    if (lowerEmail === PLATFORM_ADMIN_EMAIL) {
+      setPlatformAdminRole('SUPER_ADMIN');
+    } else if (lowerEmail) {
+      const { data: paRow } = await supabase
+        .from('platform_admins')
+        .select('role, is_active')
+        .eq('email', lowerEmail)
+        .maybeSingle();
+      if (paRow?.is_active && (paRow.role === 'SUPER_ADMIN' || paRow.role === 'SALES_ADMIN')) {
+        setPlatformAdminRole(paRow.role);
+      } else {
+        setPlatformAdminRole(null);
+      }
+    }
 
     await supabase.rpc('claim_my_invites');
 
@@ -656,12 +675,12 @@ export default function AccountingApp() {
             it yet. Please contact your platform administrator.
           </p>
           <div className="flex flex-col gap-2 pt-2">
-            {user.email?.toLowerCase() === PLATFORM_ADMIN_EMAIL && (
+            {platformAdminRole && (
               <a
                 href="/admin"
                 className="w-full min-h-[44px] flex items-center justify-center py-2.5 bg-slate-900 text-white rounded-xl text-sm font-semibold"
               >
-                Open Platform Admin Console
+                {platformAdminRole === 'SUPER_ADMIN' ? 'Open Platform Admin Console' : 'Open Sales Partner Console'}
               </a>
             )}
             <button
@@ -1484,7 +1503,7 @@ export default function AccountingApp() {
               </kbd>
             </button>
 
-            {user.email?.toLowerCase() === PLATFORM_ADMIN_EMAIL && (
+            {platformAdminRole && (
               <a
                 href="/admin"
                 className="block w-full px-3 text-xs text-accent font-semibold hover:underline"
@@ -2472,7 +2491,7 @@ export default function AccountingApp() {
         </div>
 
         <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
-          {user.email?.toLowerCase() === PLATFORM_ADMIN_EMAIL && (
+          {platformAdminRole && (
             <a
               href="/admin"
               className="min-h-[44px] inline-flex items-center px-3 rounded-xl bg-slate-900 text-white text-xs font-semibold"
