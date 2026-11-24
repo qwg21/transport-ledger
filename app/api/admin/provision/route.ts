@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const SUPER_ADMIN_EMAIL = 'quentinwg2015@gmail.com';
 const VALID_MODULES = new Set([
   'TRANSPORT',
   'RENTALS',
@@ -46,31 +45,8 @@ export async function POST(req: NextRequest) {
     error: userError
   } = await userClient.auth.getUser();
 
-  const callerEmail = user?.email?.toLowerCase();
-  if (userError || !callerEmail) {
+  if (userError || !user?.email) {
     return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
-  }
-
-  const adminClient = createClient(supabaseUrl, serviceRoleKey);
-
-  // Verify caller is either the owner or an active Sales/Super Admin in platform_admins
-  let adminRole: 'SUPER_ADMIN' | 'SALES_ADMIN' | null =
-    callerEmail === SUPER_ADMIN_EMAIL ? 'SUPER_ADMIN' : null;
-
-  if (!adminRole) {
-    const { data: paRow } = await adminClient
-      .from('platform_admins')
-      .select('role, is_active')
-      .eq('email', callerEmail)
-      .maybeSingle();
-
-    if (paRow?.is_active && (paRow.role === 'SUPER_ADMIN' || paRow.role === 'SALES_ADMIN')) {
-      adminRole = paRow.role;
-    }
-  }
-
-  if (!adminRole) {
-    return NextResponse.json({ error: 'Platform admin access required.' }, { status: 403 });
   }
 
   const body = (await req.json()) as ProvisionBody;
@@ -81,8 +57,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Business name and owner email are required.' }, { status: 400 });
   }
 
-  // Sales admins onboard new clients onto TRIAL by default unless Super Admin overrides
-  const targetPlan = body.plan || 'STARTER';
   const normalizedModules = Array.from(
     new Set(
       (Array.isArray(body.enabledModules) ? body.enabledModules : [])
@@ -94,82 +68,52 @@ export async function POST(req: NextRequest) {
     normalizedModules.push('TRANSPORT');
   }
 
-  // Check if owner already has a Supabase auth account
-  const { data: existingUsers } = await adminClient.auth.admin.listUsers({ perPage: 1000 });
-  const existingUser = existingUsers?.users?.find(u => u.email?.toLowerCase() === ownerEmail);
-
-  // Create organization stamped with onboarded_by_email
-  const { data: orgRow, error: orgErr } = await adminClient
-    .from('organizations')
-    .insert({
-      name,
-      industry: body.industry?.trim() || 'General Business',
-      kra_pin: body.kraPin?.trim() || null,
-      currency: body.currency?.trim() || 'KES',
-      onboarded_by_email: callerEmail
-    })
-    .select('id')
-    .single();
-
-  if (orgErr || !orgRow) {
-    return NextResponse.json({ error: orgErr?.message || 'Failed to create organization.' }, { status: 400 });
-  }
-
-  // Create subscription (14-day TRIAL for Sales Admin onboardings, ACTIVE for Super Admin)
-  const trialEnd = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const { error: subErr } = await adminClient.from('subscriptions').insert({
-    org_id: orgRow.id,
-    plan: targetPlan,
-    status: adminRole === 'SALES_ADMIN' ? 'TRIAL' : 'ACTIVE',
-    transport_addon: normalizedModules.includes('TRANSPORT'),
-    enabled_modules: normalizedModules,
-    current_period_end: trialEnd
+  const { data: provData, error: provError } = await userClient.rpc('platform_provision_business', {
+    p_name: name,
+    p_industry: body.industry?.trim() || 'General Business',
+    p_owner_email: ownerEmail,
+    p_kra_pin: body.kraPin?.trim() || null,
+    p_currency: body.currency?.trim() || 'KES',
+    p_plan: body.plan || 'ESSENTIAL',
+    p_transport_addon: normalizedModules.includes('TRANSPORT')
   });
 
-  if (subErr) {
-    return NextResponse.json({ error: subErr.message }, { status: 400 });
+  if (provError) {
+    return NextResponse.json({ error: provError.message }, { status: 400 });
+  }
+
+  let modulesNote: string | null = null;
+  if (provData?.org_id && normalizedModules.length > 0) {
+    const { error: modError } = await userClient.rpc('platform_set_org_modules', {
+      p_org_id: provData.org_id,
+      p_modules: normalizedModules
+    });
+    if (modError) {
+      modulesNote = modError.message;
+    }
   }
 
   let inviteEmailSent = false;
   let inviteNote: string | null = null;
-  let provisionStatus = 'INVITED_NEW_USER';
 
-  if (existingUser) {
-    provisionStatus = 'LINKED_EXISTING_USER';
-    await adminClient.from('memberships').upsert(
-      {
-        org_id: orgRow.id,
-        user_id: existingUser.id,
-        role: 'owner'
-      },
-      { onConflict: 'org_id,user_id' }
-    );
-  } else {
+  if (provData?.status !== 'LINKED_EXISTING_USER') {
+    const adminClient = createClient(supabaseUrl, serviceRoleKey);
     const origin = req.nextUrl.origin;
-    const { data: invited, error: inviteErr } = await adminClient.auth.admin.inviteUserByEmail(
-      ownerEmail,
-      { redirectTo: `${origin}/set-password` }
-    );
+    const { error: inviteErr } = await adminClient.auth.admin.inviteUserByEmail(ownerEmail, {
+      redirectTo: `${origin}/set-password`
+    });
+
     if (inviteErr) {
       inviteNote = inviteErr.message;
     } else {
       inviteEmailSent = true;
-      if (invited?.user?.id) {
-        await adminClient.from('memberships').upsert(
-          {
-            org_id: orgRow.id,
-            user_id: invited.user.id,
-            role: 'owner'
-          },
-          { onConflict: 'org_id,user_id' }
-        );
-      }
     }
   }
 
   return NextResponse.json({
-    provision: { org_id: orgRow.id, status: provisionStatus },
+    provision: provData,
     enabledModules: normalizedModules,
+    modulesNote,
     inviteEmailSent,
     inviteNote
   });
