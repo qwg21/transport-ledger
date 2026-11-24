@@ -404,6 +404,16 @@ export default function PlatformAdminPage() {
     loadAdminData('SUPER_ADMIN');
   };
 
+  const handleUpdateRepCommission = async (email: string, nextRate: number) => {
+    if (Number.isNaN(nextRate) || nextRate < 0 || nextRate > 100) return;
+    const { error } = await supabase
+      .from('platform_admins')
+      .update({ commission_rate_pct: nextRate })
+      .eq('email', email);
+    if (error) alert(error.message);
+    else loadAdminData('SUPER_ADMIN');
+  };
+
   const handleToggleRepActive = async (rep: PlatformAdminRow) => {
     const { error } = await supabase
       .from('platform_admins')
@@ -999,7 +1009,32 @@ export default function PlatformAdminPage() {
                           <div className="font-semibold text-slate-900">{rep.full_name}</div>
                           <div className="text-xs text-slate-500">{rep.email}</div>
                         </td>
-                        <td className="py-3 px-2 font-semibold">{rep.commission_rate_pct}%</td>
+                        <td className="py-3 px-2">
+                          <div className="inline-flex items-center gap-1">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.5"
+                              defaultValue={rep.commission_rate_pct}
+                              key={`${rep.email}-${rep.commission_rate_pct}`}
+                              onBlur={e => {
+                                const val = Number(e.target.value);
+                                if (val !== Number(rep.commission_rate_pct)) {
+                                  handleUpdateRepCommission(rep.email, val);
+                                }
+                              }}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  (e.target as HTMLInputElement).blur();
+                                }
+                              }}
+                              aria-label={`Commission rate for ${rep.full_name}`}
+                              className="w-16 border border-slate-200 focus:border-blue-500 rounded-lg px-2 py-1 text-xs font-semibold text-slate-900 tabular-money bg-white"
+                            />
+                            <span className="text-xs text-slate-400 font-semibold">%</span>
+                          </div>
+                        </td>
                         <td className="py-3 px-2 font-bold">{rep.totalCount}</td>
                         <td className="py-3 px-2 text-xs">
                           <span className="text-emerald-700 font-semibold">
