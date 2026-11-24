@@ -324,7 +324,7 @@ export default function InventorySection({
             </div>
             <div className="bg-white border border-slate-200 rounded-2xl p-4">
               <p className="text-xs text-slate-500">Stock Valuation</p>
-              <p className="text-lg font-bold text-blue-600 mt-1">{currency} {totalStockValue.toLocaleString()}</p>
+              <p className="text-sm sm:text-lg font-bold text-blue-600 mt-1 tabular-money whitespace-nowrap">{currency} {totalStockValue.toLocaleString()}</p>
             </div>
             <div className="bg-white border border-slate-200 rounded-2xl p-4">
               <p className="text-xs text-slate-500">Low / Out-of-Stock</p>
@@ -336,7 +336,7 @@ export default function InventorySection({
         )}
         <div className="bg-white border border-slate-200 rounded-2xl p-4">
           <p className="text-xs text-slate-500">Unpaid Supplier Bills</p>
-          <p className="text-lg font-bold text-rose-600 mt-1">{currency} {totalPayables.toLocaleString()}</p>
+          <p className="text-sm sm:text-lg font-bold text-rose-600 mt-1 tabular-money whitespace-nowrap">{currency} {totalPayables.toLocaleString()}</p>
         </div>
         <div className="col-span-2 md:col-span-1 bg-white border border-slate-200 rounded-2xl p-4">
           <p className="text-xs text-slate-500">Active Suppliers</p>
@@ -360,7 +360,7 @@ export default function InventorySection({
             ...(canManageStockControl
               ? [
                   { id: 'VARIANTS' as const, label: 'SKU Variants & Stock', icon: PackageCheck },
-                  { id: 'MOVEMENTS' as const, label: 'Stock Movements (GRN / Issues)', icon: ArrowUpDown }
+                  { id: 'MOVEMENTS' as const, label: 'Movements', icon: ArrowUpDown }
                 ]
               : []),
             ...(canManageSuppliersAp
@@ -415,7 +415,7 @@ export default function InventorySection({
           )}
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="w-full min-w-[560px] text-left text-xs">
               <thead className="uppercase text-slate-500 border-b border-slate-200">
                 <tr>
                   <th className="py-2 px-2">SKU</th>
@@ -551,7 +551,7 @@ export default function InventorySection({
           )}
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="w-full min-w-[560px] text-left text-xs">
               <thead className="uppercase text-slate-500 border-b border-slate-200">
                 <tr>
                   <th className="py-2 px-2">Bill / Date</th>
@@ -636,7 +636,7 @@ export default function InventorySection({
                   {
                     id: 'MOVEMENTS' as const,
                     shortLabel: 'Movements',
-                    label: 'Stock Movements (GRN / Issues)',
+                    label: 'Movements',
                     icon: ArrowUpDown
                   }
                 ]
@@ -835,7 +835,7 @@ export default function InventorySection({
 
           {/* DESKTOP SKU TABLE */}
           <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="w-full min-w-[560px] text-left text-xs">
               <thead className="uppercase text-slate-500 border-b border-slate-200">
                 <tr>
                   <th className="py-2 px-2">SKU</th>
@@ -1161,7 +1161,7 @@ export default function InventorySection({
 
           {/* DESKTOP BILLS TABLE */}
           <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-left text-xs">
+            <table className="w-full min-w-[560px] text-left text-xs">
               <thead className="uppercase text-slate-500 border-b border-slate-200">
                 <tr>
                   <th className="py-2 px-2">Bill / Date</th>
