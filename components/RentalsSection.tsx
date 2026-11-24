@@ -1025,7 +1025,7 @@ export default function RentalsSection({
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                <table className="w-full min-w-[540px] text-left border-collapse text-xs sm:text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 text-slate-500">
                       <th className="py-2 pr-3 font-semibold">Property</th>
@@ -1570,7 +1570,7 @@ export default function RentalsSection({
           <div className={`${ui.cardPadded} space-y-3`}>
             <h3 className={ui.sectionTitle}>Active &amp; Past Tenancies ({tenancies.length})</h3>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs sm:text-sm">
+              <table className="w-full min-w-[540px] text-left border-collapse text-xs sm:text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-slate-500">
                     <th className="py-2 pr-3 font-semibold">Tenant &amp; Unit</th>
@@ -1780,7 +1780,7 @@ export default function RentalsSection({
               </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs sm:text-sm">
+              <table className="w-full min-w-[540px] text-left border-collapse text-xs sm:text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-slate-500">
                     <th className="py-2 pr-3 font-semibold">Bill #</th>
@@ -2124,7 +2124,7 @@ export default function RentalsSection({
                       </div>
                     </div>
 
-                    <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                    <table className="w-full min-w-[540px] text-left border-collapse text-xs sm:text-sm">
                       <thead>
                         <tr className="border-b-2 border-slate-200 text-slate-600">
                           <th className="py-2 pr-3 font-semibold">Charge Description</th>
@@ -2334,7 +2334,7 @@ export default function RentalsSection({
                         1. Property Occupancy &amp; Financial State
                       </h4>
                       <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                        <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                        <table className="w-full min-w-[540px] text-left border-collapse text-xs sm:text-sm">
                           <thead>
                             <tr className="bg-slate-50 border-b border-slate-200 text-slate-600">
                               <th className="py-2 px-3 font-semibold">Property</th>
@@ -2396,7 +2396,7 @@ export default function RentalsSection({
                         </p>
                       ) : (
                         <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                          <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                          <table className="w-full min-w-[540px] text-left border-collapse text-xs sm:text-sm">
                             <thead>
                               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600">
                                 <th className="py-2 px-3 font-semibold">Property</th>
