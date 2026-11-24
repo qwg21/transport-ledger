@@ -1068,7 +1068,7 @@ export default function AccountingApp() {
       }
     }
     pdf.save(`${item.doc_number}.pdf`);
-    toast.info(`Downloaded ${item.doc_number}.pdf — attach it directly in WhatsApp or Email.`);
+    toast.info(`Downloaded ${item.doc_number}.pdf â€” attach it directly in WhatsApp or Email.`);
   };
 
   const exportTaxCSV = () => {
@@ -2337,14 +2337,10 @@ export default function AccountingApp() {
         )}
       </main>
 
-      {/* MOBILE BOTTOM TAB BAR + CONTEXTUAL FLOATING '+' */}
+      {/* MOBILE BOTTOM TAB BAR + CENTERED FLOATING '+' */}
       <nav
         aria-label="Mobile navigation"
-        className={`md:hidden fixed bottom-0 inset-x-0 z-40 border-t px-2 pt-1.5 pb-safe flex items-center justify-around ${
-          isDarkModule
-            ? 'bg-surface/95 border-surface-border text-muted'
-            : 'bg-surface/95 border-surface-border text-muted'
-        } backdrop-blur-md`}
+        className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-slate-200/80 bg-white/85 backdrop-blur-xl px-1 pt-1.5 pb-safe grid grid-cols-5 items-center text-muted"
       >
         {mobilePrimaryTabs.slice(0, 2).map(tab => (
           <button
@@ -2352,38 +2348,40 @@ export default function AccountingApp() {
             type="button"
             aria-current={tab.active ? 'page' : undefined}
             onClick={tab.onClick}
-            className={`min-h-[44px] min-w-[56px] flex flex-col items-center justify-center gap-0.5 rounded-xl px-2 text-xs font-semibold ${
-              tab.active ? 'text-accent' : ''
+            className={`min-h-[44px] flex flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[11px] font-semibold transition active:scale-95 ${
+              tab.active ? 'text-accent' : 'text-slate-500'
             }`}
           >
             <tab.icon className="w-5 h-5" />
-            <span>{tab.label}</span>
+            <span className="truncate max-w-full">{tab.label}</span>
           </button>
         ))}
 
-        {/* Contextual Floating Quick-Create Button */}
-        <button
-          type="button"
-          disabled={subscriptionLocked}
-          onClick={() => setQuickCreateOpen(true)}
-          aria-label="Quick create action"
-          className="-mt-5 h-13 w-13 rounded-2xl bg-accent hover:bg-accent-hover text-accent-fg shadow-lg flex items-center justify-center disabled:opacity-50"
-        >
-          <Plus className="w-6 h-6" />
-        </button>
+        {/* Centered Contextual Quick-Create Button */}
+        <div className="flex justify-center">
+          <button
+            type="button"
+            disabled={subscriptionLocked}
+            onClick={() => setQuickCreateOpen(true)}
+            aria-label="Quick create action"
+            className="-mt-5 h-12 w-12 rounded-2xl bg-accent hover:bg-accent-hover text-accent-fg shadow-lg shadow-blue-600/25 flex items-center justify-center transition active:scale-95 disabled:opacity-50"
+          >
+            <Plus className="w-6 h-6" />
+          </button>
+        </div>
 
-        {mobilePrimaryTabs.slice(2, 4).map(tab => (
+        {mobilePrimaryTabs.slice(2, 3).map(tab => (
           <button
             key={tab.key}
             type="button"
             aria-current={tab.active ? 'page' : undefined}
             onClick={tab.onClick}
-            className={`min-h-[44px] min-w-[56px] flex flex-col items-center justify-center gap-0.5 rounded-xl px-2 text-xs font-semibold ${
-              tab.active ? 'text-accent' : ''
+            className={`min-h-[44px] flex flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[11px] font-semibold transition active:scale-95 ${
+              tab.active ? 'text-accent' : 'text-slate-500'
             }`}
           >
             <tab.icon className="w-5 h-5" />
-            <span>{tab.label}</span>
+            <span className="truncate max-w-full">{tab.label}</span>
           </button>
         ))}
 
@@ -2391,7 +2389,7 @@ export default function AccountingApp() {
           type="button"
           onClick={() => setMobileMoreOpen(true)}
           aria-label="More modules and settings"
-          className="min-h-[44px] min-w-[56px] flex flex-col items-center justify-center gap-0.5 rounded-xl px-2 text-xs font-semibold"
+          className="min-h-[44px] flex flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[11px] font-semibold text-slate-500 transition active:scale-95"
         >
           <MoreHorizontal className="w-5 h-5" />
           <span>More</span>
@@ -2428,7 +2426,7 @@ export default function AccountingApp() {
         open={mobileMoreOpen}
         onClose={() => setMobileMoreOpen(false)}
         title={org?.name || 'Workspace'}
-        subtitle={`${sub?.plan || 'STARTER'} · ${(org?.role || 'owner').toUpperCase()}`}
+        subtitle={`${sub?.plan || 'STARTER'} Â· ${(org?.role || 'owner').toUpperCase()}`}
       >
         {memberships.length > 1 && (
           <div>
