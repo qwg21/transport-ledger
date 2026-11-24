@@ -1,9 +1,9 @@
 export const ui = {
   // Surfaces & Cards
-  card: 'rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow',
-  cardPadded: 'rounded-2xl border border-slate-200 bg-white p-6 shadow-sm',
+  card: 'rounded-2xl border border-surface-border bg-surface shadow-sm transition-shadow',
+  cardPadded: 'rounded-2xl border border-surface-border bg-surface p-6 shadow-sm',
   cardHeader: 'flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-slate-100',
-  kpiCard: 'rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow transition-shadow',
+  kpiCard: 'rounded-2xl border border-surface-border bg-surface p-5 shadow-sm hover:shadow transition-shadow',
 
   // Typography
   pageTitle: 'text-2xl sm:text-3xl font-bold tracking-tight text-slate-900',

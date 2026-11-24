@@ -907,7 +907,7 @@ export default function RentalsSection({
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className={ui.kpiCard}>
           <div className={ui.muted}>Occupancy</div>
-          <div className="mt-1 text-lg font-bold text-slate-900">
+          <div className="mt-1 text-sm sm:text-lg font-bold text-slate-900 tabular-money whitespace-nowrap">
             {kpis.occupied} / {kpis.totalUnits} units
           </div>
           <div className="mt-0.5 text-xs font-medium text-slate-500">
@@ -916,15 +916,15 @@ export default function RentalsSection({
         </div>
         <div className={ui.kpiCard}>
           <div className={ui.muted}>Open Rent &amp; Utility Charges</div>
-          <div className="mt-1 text-lg font-bold text-amber-700">{fmtMoney(currency, kpis.unpaidCharges)}</div>
+          <div className="mt-1 text-sm sm:text-lg font-bold text-amber-700 tabular-money whitespace-nowrap">{fmtMoney(currency, kpis.unpaidCharges)}</div>
         </div>
         <div className={ui.kpiCard}>
           <div className={ui.muted}>Matched Collections</div>
-          <div className="mt-1 text-lg font-bold text-emerald-700">{fmtMoney(currency, kpis.collected)}</div>
+          <div className="mt-1 text-sm sm:text-lg font-bold text-emerald-700 tabular-money whitespace-nowrap">{fmtMoney(currency, kpis.collected)}</div>
         </div>
         <div className={ui.kpiCard}>
           <div className={ui.muted}>Unmatched Suspense</div>
-          <div className="mt-1 text-lg font-bold text-slate-900">{fmtMoney(currency, kpis.unmatched)}</div>
+          <div className="mt-1 text-sm sm:text-lg font-bold text-slate-900 tabular-money whitespace-nowrap">{fmtMoney(currency, kpis.unmatched)}</div>
         </div>
       </div>
 

@@ -48,8 +48,8 @@ export default function ExpensesTable({
   };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
-      <h3 className="font-bold text-slate-800">Operating Expenses ({expenses.length})</h3>
+      <div className="bg-surface border border-surface-border rounded-2xl p-5 space-y-3">
+      <h3 className="font-bold text-ink">Operating Expenses ({expenses.length})</h3>
       <div className="overflow-x-auto">
         <table className="w-full text-left text-sm">
           <thead className="text-xs uppercase text-slate-500 border-b border-slate-200">

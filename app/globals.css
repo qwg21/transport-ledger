@@ -1,6 +1,103 @@
 @import "tailwindcss";
 
-html,
-body {
-  min-height: 100%;
+@theme inline {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, monospace;
+
+  --color-shell: var(--shell-bg);
+  --color-surface: var(--surface-bg);
+  --color-surface-border: var(--surface-border);
+  --color-input: var(--input-bg);
+  --color-input-border: var(--input-border);
+  --color-ink: var(--ink-fg);
+  --color-muted: var(--muted-fg);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-border: var(--accent-border);
+  --color-accent-fg: var(--accent-fg);
+}
+
+:root,
+[data-module="accounting"] {
+  --shell-bg: #f8fafc;
+  --surface-bg: #ffffff;
+  --surface-border: #e2e8f0;
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --ink-fg: #0f172a;
+  --muted-fg: #64748b;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #eff6ff;
+  --accent-border: #bfdbfe;
+  --accent-fg: #ffffff;
+}
+
+[data-module="transport"] {
+  --shell-bg: #f8fafc;
+  --surface-bg: #ffffff;
+  --surface-border: #e2e8f0;
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --ink-fg: #0f172a;
+  --muted-fg: #64748b;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #eff6ff;
+  --accent-border: #bfdbfe;
+  --accent-fg: #ffffff;
+}
+
+[data-module="rentals"] {
+  --shell-bg: #f8fafc;
+  --surface-bg: #ffffff;
+  --surface-border: #e2e8f0;
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --ink-fg: #0f172a;
+  --muted-fg: #64748b;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #eff6ff;
+  --accent-border: #bfdbfe;
+  --accent-fg: #ffffff;
+}
+
+[data-module="inventory"] {
+  --shell-bg: #f8fafc;
+  --surface-bg: #ffffff;
+  --surface-border: #e2e8f0;
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --ink-fg: #0f172a;
+  --muted-fg: #64748b;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #eff6ff;
+  --accent-border: #bfdbfe;
+  --accent-fg: #ffffff;
+}
+
+[data-module="reports"] {
+  --shell-bg: #f8fafc;
+  --surface-bg: #ffffff;
+  --surface-border: #e2e8f0;
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --ink-fg: #0f172a;
+  --muted-fg: #64748b;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-soft: #eff6ff;
+  --accent-border: #bfdbfe;
+  --accent-fg: #ffffff;
+}
+
+.tabular-money {
+  font-variant-numeric: tabular-nums;
+}
+
+.pb-safe {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
 }

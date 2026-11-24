@@ -35,6 +35,7 @@ type Props = {
   subscriptionLocked: boolean;
   customers: Customer[];
   products: Product[];
+  initialDocType?: DocType;
   onClose: () => void;
   onCreated: () => void;
 };
@@ -46,11 +47,12 @@ export default function DocumentModal({
   subscriptionLocked,
   customers,
   products,
+  initialDocType = 'QUOTE',
   onClose,
   onCreated
 }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [docType, setDocType] = useState<DocType>('QUOTE');
+  const [docType, setDocType] = useState<DocType>(initialDocType);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [customerName, setCustomerName] = useState('');
@@ -364,7 +366,7 @@ export default function DocumentModal({
               <input
                 type="text"
                 required
-                placeholder={isGrowthPlus ? 'Customer Name (click or type to search)' : 'Customer Name'}
+                placeholder={'Customer Name'}
                 value={customerName}
                 onFocus={() => setShowCustomerDropdown(true)}
                 onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 150)}
@@ -419,7 +421,7 @@ export default function DocumentModal({
               }}
               className="w-full border border-blue-200 rounded-xl p-2.5 text-sm bg-blue-50 text-blue-900 font-medium"
             >
-              <option value="">+ Quick Add from Catalogue (click to add item)...</option>
+              <option value="">+ Quick Add from Catalogue...</option>
               {products.map(p => {
                 const { isTracked, available } = getProductStockInfo(p.id);
                 const stockLabel = !isTracked

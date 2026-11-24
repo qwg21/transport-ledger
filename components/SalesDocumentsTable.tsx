@@ -27,6 +27,7 @@ type Props = {
   onDeleteQuote: (quote: DocumentRecord) => void;
   onOpenReceipt: (invoice: DocumentRecord) => void;
   onVoidInvoice: (invoice: DocumentRecord) => void;
+  onVoidReceipt?: (receipt: DocumentRecord) => void;
   onPreviewPdf: (doc: DocumentRecord) => void;
   onDownloadPdf: (doc: DocumentRecord) => void;
   onSharePdf: (doc: DocumentRecord) => void;
@@ -44,21 +45,22 @@ export default function SalesDocumentsTable({
   onDeleteQuote,
   onOpenReceipt,
   onVoidInvoice,
+  onVoidReceipt,
   onPreviewPdf,
   onDownloadPdf,
   onSharePdf
 }: Props) {
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
+    <div className="bg-surface border border-surface-border rounded-2xl p-5 space-y-4">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-        <h3 className="font-bold text-slate-800">Financial Documents ({docs.length})</h3>
+        <h3 className="font-bold text-ink">Financial Documents ({docs.length})</h3>
         <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
           {(['ALL', 'QUOTE', 'INVOICE', 'RECEIPT'] as const).map(tab => (
             <button
               key={tab}
               onClick={() => onSalesTabChange(tab)}
               className={`px-3 py-1 rounded-lg text-xs font-semibold ${
-                salesTab === tab ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-600'
+                salesTab === tab ? 'bg-surface text-accent shadow-sm' : 'text-muted'
               }`}
             >
               {tab === 'ALL' ? 'All' : tab + 'S'}
@@ -170,6 +172,17 @@ export default function SalesDocumentsTable({
                             </button>
                           )}
                         </>
+                      )}
+                      {item.doc_type === 'RECEIPT' && item.status !== 'VOID' && onVoidReceipt && (
+                        <button
+                          type="button"
+                          disabled={subscriptionLocked}
+                          onClick={() => onVoidReceipt(item)}
+                          className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 disabled:opacity-40"
+                          title="Void receipt with audit trail"
+                        >
+                          Void
+                        </button>
                       )}
                       <button onClick={() => onPreviewPdf(item)} title="Preview" className="p-1.5 bg-slate-100 hover:bg-slate-200 text-blue-600 rounded-lg">
                         <Eye className="w-4 h-4" />
