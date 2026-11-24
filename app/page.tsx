@@ -214,6 +214,7 @@ export default function AccountingApp() {
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [commandQuery, setCommandQuery] = useState('');
+  const [platformAdminRole, setPlatformAdminRole] = useState<'SUPER_ADMIN' | 'SALES_ADMIN' | null>(null);
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
 
   const [salesTab, setSalesTab] = useState<'ALL' | 'QUOTE' | 'INVOICE' | 'RECEIPT'>('ALL');
